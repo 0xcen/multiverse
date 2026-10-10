@@ -115,31 +115,32 @@ struct UniversePage: View {
 
     var body: some View {
         ScrollView {
-            VStack(alignment: .leading, spacing: 22) {
+            VStack(alignment: .leading, spacing: Space.section) {
                 header
 
-                VStack(alignment: .leading, spacing: 6) {
-                    Text("Links open in").font(.headline)
+                VStack(alignment: .leading, spacing: Space.label) {
+                    SectionLabel("Links open in")
                     BrowserPicker(universe: $universe)
                     Text(isDefault
                          ? "Main universe: used for links from every app that isn't in another universe."
                          : "Used for links you open from the apps below.")
-                        .font(.caption).foregroundStyle(.secondary)
+                        .font(.callout).foregroundStyle(Brand.muted)
+                        .padding(.top, Space.caption - Space.label)
                 }
 
-                VStack(alignment: .leading, spacing: 8) {
-                    HStack {
-                        Text("Apps").font(.headline)
+                VStack(alignment: .leading, spacing: Space.label) {
+                    HStack(alignment: .center) {
+                        SectionLabel("Apps")
                         Spacer()
                         Button { adding = true } label: { Label("Add app", systemImage: "plus") }
+                            .buttonStyle(.brandQuiet)
                     }
                     if apps.isEmpty {
                         Text(isDefault
                              ? "Every app that isn't in another universe is in \(universe.name). Add an app here only to give it a separate copy."
                              : "Every app is in \(store.config.defaultUniverse.map { "\($0.emoji) \($0.name)" } ?? "your main universe") until you add it here. Add apps that belong to \(universe.name), or a separate copy of one you use in both.")
-                            .foregroundStyle(.secondary)
+                            .font(.callout).foregroundStyle(Brand.muted)
                             .fixedSize(horizontal: false, vertical: true)
-                            .padding(.vertical, 6)
                     }
                     VStack(spacing: 0) {
                         ForEach(apps) { app in
@@ -147,11 +148,11 @@ struct UniversePage: View {
                             if app.id != apps.last?.id { Divider() }
                         }
                     }
-                    .brandCard(radius: 8)
+                    .brandCard(radius: 10)
                 }
             }
-            .padding(24)
-            .frame(maxWidth: 640, alignment: .leading)
+            .padding(.horizontal, Space.page).padding(.vertical, Space.page - 4)
+            .frame(maxWidth: 680, alignment: .leading)
         }
         .sheet(isPresented: $adding) { AddAppSheet(universe: universe) }
         .onAppear {
@@ -165,13 +166,14 @@ struct UniversePage: View {
     }
 
     private var header: some View {
-        HStack(alignment: .center, spacing: 10) {
+        HStack(alignment: .center, spacing: 12) {
             EmojiButton(emoji: $universe.emoji)
                 .offset(y: -2)  // emoji glyphs sit low next to cap-height text
             UniverseTitle(name: $universe.name, editing: $renaming)
             Spacer()
             ColorSwatches(color: $universe.color)
                 .help("Colour, used for tinted app icons")
+                .padding(.trailing, 6)
             Menu {
                 Button("Rename") { renaming = true }
                 Button("Make this the main universe") { store.config.defaultUniverseID = universe.id }
@@ -313,14 +315,15 @@ struct AppRow: View {
             } else if nameTaken {
                 EmptyView()
             } else if entry.kind != .original && !exists {
-                Button("Create") { store.build(entry) }
+                Button("Create") { store.build(entry) }.buttonStyle(.brand)
             } else if update != nil {
-                Button("Update") { store.build(entry) }
+                Button("Update") { store.build(entry) }.buttonStyle(.brand)
             } else {
                 Button("Open") {
                     NSWorkspace.shared.openApplication(at: URL(fileURLWithPath: entry.installedPath),
                                                        configuration: NSWorkspace.OpenConfiguration())
                 }
+                .buttonStyle(.brandQuiet)
             }
             Menu {
                 Button("Show in Finder") {
@@ -335,8 +338,8 @@ struct AppRow: View {
             .menuStyle(.borderlessButton)
             .fixedSize()
         }
-        .padding(.horizontal, 12)
-        .padding(.vertical, 10)
+        .padding(.horizontal, Space.rowH)
+        .padding(.vertical, Space.rowV)
         .confirmationDialog("Remove \(entry.name)?", isPresented: $confirmRemove) {
             Button("Remove from Multiverse") { store.remove(entry, trashCopy: false) }
             if entry.kind != .original && exists {
@@ -394,16 +397,16 @@ struct BrowserPicker: View {
                 HStack(spacing: 8) {
                     Image(nsImage: appIcon(target.appPath, size: 18))
                     Text(options.first { normalized($0.target) == normalized(target) }?.label ?? label(for: target))
-                        .foregroundStyle(Brand.ink)
-                    Image(systemName: "chevron.up.chevron.down").font(.system(size: 10, weight: .semibold)).foregroundStyle(Brand.muted)
                 }
-                .padding(.horizontal, 12).padding(.vertical, 6)
-                .background(Capsule().fill(Brand.panel))
-                .overlay(Capsule().stroke(Brand.border))
             }
+            // macOS draws a menu's label itself, so the pill goes around the control, not inside it.
             .menuStyle(.borderlessButton)
-            .menuIndicator(.hidden)
+            .menuIndicator(.visible)
             .fixedSize()
+            .padding(.leading, 10).padding(.trailing, 8).padding(.vertical, 5)
+            .background(Capsule().fill(Brand.panel))
+            .overlay(Capsule().strokeBorder(Brand.border))
+            .contentShape(Capsule())
         }
         .sheet(item: $newBrowser) { b in
             SeparateBrowserSheet(browser: b, universe: universe, suggestedName: suggestedName(for: b))

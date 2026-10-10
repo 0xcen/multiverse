@@ -33,6 +33,29 @@ extension NSColor {
     }
 }
 
+/// One spacing scale for every screen.
+enum Space {
+    /// Window padding.
+    static let page: CGFloat = 32
+    /// Between sections.
+    static let section: CGFloat = 32
+    /// Between a section's label and its content.
+    static let label: CGFloat = 10
+    /// Before a caption under a control.
+    static let caption: CGFloat = 8
+    /// Inside cards and rows.
+    static let rowH: CGFloat = 14, rowV: CGFloat = 12
+}
+
+/// A section's label, e.g. "Links open in", "Apps".
+struct SectionLabel: View {
+    let text: String
+    init(_ text: String) { self.text = text }
+    var body: some View {
+        Text(text).font(.system(size: 15, weight: .semibold)).foregroundStyle(Brand.ink)
+    }
+}
+
 /// A big heading with brand tracking.
 struct BrandTitle: View {
     let text: String
@@ -63,7 +86,7 @@ struct BrandQuietButtonStyle: ButtonStyle {
             .foregroundStyle(Brand.ink)
             .padding(.horizontal, 14).padding(.vertical, 6)
             .background(Capsule().fill(Brand.panel.opacity(configuration.isPressed ? 0.6 : 1)))
-            .overlay(Capsule().stroke(Brand.border))
+            .overlay(Capsule().strokeBorder(Brand.border))
     }
 }
 
