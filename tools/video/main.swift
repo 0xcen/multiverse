@@ -5,7 +5,8 @@ import SwiftUI
 
 @MainActor func renderFrame(_ n: Int) -> CGImage {
     let renderer = ImageRenderer(content: Frame(n: n))
-    renderer.scale = 1
+    // MV_SCALE=2 renders 3840×2160.
+    renderer.scale = Double(ProcessInfo.processInfo.environment["MV_SCALE"] ?? "1") ?? 1
     return renderer.cgImage!
 }
 

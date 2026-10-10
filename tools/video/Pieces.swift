@@ -39,6 +39,13 @@ func arc(_ a: CGPoint, _ b: CGPoint, _ x: Double, bulge: CGFloat) -> CGPoint {
 /// Long moves: a gentler overshoot, so far-travelling things don't fly past the frame.
 func popSoft(_ x: Double) -> Double { let c = 0.7; return 1 + (c + 1) * pow(x - 1, 3) + c * pow(x - 1, 2) }
 
+/// Staging: darken a whole window evenly (a dark layer over its shape), instead of fading its parts.
+extension View {
+    func dimmed(_ amount: Double, cornerRadius: CGFloat = 16) -> some View {
+        overlay(RoundedRectangle(cornerRadius: cornerRadius).fill(Carbon.bg.opacity(amount)))
+    }
+}
+
 /// Lands with a small overshoot.
 func pop(_ x: Double) -> Double { let c = 1.9; return 1 + (c + 1) * pow(x - 1, 3) + c * pow(x - 1, 2) }
 func mix(_ a: CGFloat, _ b: CGFloat, _ x: Double) -> CGFloat { a + (b - a) * CGFloat(x) }

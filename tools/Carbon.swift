@@ -24,7 +24,7 @@ enum Carbon {
     /// The symbol from a real app icon (Notion's N, Slack's hash, Claude's spark…) as a white mask:
     /// the icon's background colour is sampled around its inner edge and everything that differs from
     /// it is the symbol. Tint it with `.foregroundStyle` via `Glyph`.
-    static func glyph(_ app: String, size: Int = 256) -> NSImage {
+    static func glyph(_ app: String, size: Int = 768) -> NSImage {
         let key = "\(app)|\(size)" as NSString
         if let cached = cache.object(forKey: key) { return cached }
         let source = NSWorkspace.shared.icon(forFile: "/Applications/\(app).app")
@@ -65,7 +65,10 @@ enum Carbon {
                     && px(x - edge, y).3 > 0.9 && px(x + edge, y).3 > 0.9 && px(x, y - edge).3 > 0.9 && px(x, y + edge).3 > 0.9
                     && px(x - edge, y - edge).3 > 0.9 && px(x + edge, y + edge).3 > 0.9
                     && px(x - edge, y + edge).3 > 0.9 && px(x + edge, y - edge).3 > 0.9
-                let a = inside ? min(1, max(0, (d - 0.12) / 0.18)) * c.3 : 0
+                // Icons drawn as bright lines on a glowing background (Arc) read better by brightness.
+                let lum = 0.299 * c.0 + 0.587 * c.1 + 0.114 * c.2
+                let strength = brightLines.contains(app) ? (lum - 0.72) / 0.12 : (d - 0.16) / 0.09  // crisp edges
+                let a = inside ? min(1, max(0, strength)) * c.3 : 0
                 let q = o + (y * w + x) * 4
                 let v = UInt8(a * 255)
                 q[0] = v; q[1] = v; q[2] = v; q[3] = v  // premultiplied white
@@ -78,6 +81,8 @@ enum Carbon {
     }
 
     private static let cache = NSCache<NSString, NSImage>()
+    /// Apps whose symbol is bright lines over a glow; extracted by brightness.
+    private static let brightLines: Set<String> = ["Arc"]
 }
 
 extension Color {

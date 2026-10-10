@@ -1,11 +1,14 @@
 #!/bin/bash
 # Render, encode and check the launch film. Run from the repo root. See RULES.md.
 set -euo pipefail
+# Usage: render.sh [out.mp4] [scale]   scale 2 = 3840×2160
 OUT=${1:-docs/multiverse-launch.mp4}
+export MV_SCALE=${2:-1}
+W=$((1920 * MV_SCALE)); H=$((1080 * MV_SCALE))
 WORK=$(mktemp -d)
 BIN="$WORK/launch-video"
 swiftc -O -parse-as-library -D SNAPSHOT Sources/*.swift tools/Carbon.swift tools/video/Pieces.swift tools/video/Film.swift \
-  tools/video/Audio.swift tools/video/Score.swift tools/video/main.swift -o "$BIN"
+  tools/video/Audio.swift tools/video/main.swift -o "$BIN"
 FRAMES=$("$BIN" frames-count)
 
 # Two-pass loudness normalisation to -16 LUFS: measure, then apply exactly.
@@ -18,8 +21,8 @@ print('loudnorm=I=-16:TP=-2:LRA=11:linear=true:measured_I={input_i}:measured_TP=
 "$BIN" frames "$WORK/frames"
 "$BIN" audio "$WORK/sound.wav"
 ffmpeg -loglevel error -y -framerate 30 -i "$WORK/frames/%04d.png" -i "$WORK/sound.wav" \
-  -c:v libx264 -preset slow -crf 18 -pix_fmt yuv420p -vf "setsar=1" \
-  -af "$(loudnorm_filter "$WORK/sound.wav"),alimiter=limit=0.79:level=false" -ar 48000 -c:a aac -b:a 192k -shortest -movflags +faststart "$OUT"
+  -c:v libx264 -preset slow -crf 18 -profile:v high -level 5.1 -pix_fmt yuv420p -vf "setsar=1" \
+  -af "$(loudnorm_filter "$WORK/sound.wav"),alimiter=limit=0.75:level=false" -ar 48000 -c:a aac -b:a 192k -shortest -movflags +faststart "$OUT"
 
 # Checks: these must all pass before anyone looks at the film.
 fail=0
@@ -27,7 +30,7 @@ check() { if [ "$2" = "$3" ]; then echo "ok    $1: $2"; else echo "FAIL  $1: got
 check "frames rendered" "$(ls "$WORK/frames" | wc -l | tr -d ' ')" "$FRAMES"
 probe() { ffprobe -v error -select_streams v:0 -show_entries "stream=$1" -of csv=p=0 "$OUT"; }
 check "encoded frames" "$(ffprobe -v error -count_frames -select_streams v:0 -show_entries stream=nb_read_frames -of csv=p=0 "$OUT")" "$FRAMES"
-check "size" "$(probe width,height)" "1920,1080"
+check "size" "$(probe width,height)" "$W,$H"
 check "frame rate" "$(probe r_frame_rate)" "30/1"
 check "pixel aspect" "$(probe sample_aspect_ratio)" "1:1"
 check "pixel format" "$(probe pix_fmt)" "yuv420p"

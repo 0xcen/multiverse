@@ -269,7 +269,7 @@ struct Frame: View {
                 personalChat.frame(width: 820, height: 560).position(x: 1390, y: 470)
             }
             .scaleEffect(mix(1, 0.62, z), anchor: .bottom)
-            .opacity(mix(1, 0.55, z))
+            .dimmed(mix(0, 0.5, z), cornerRadius: 0)
             HStack(spacing: 22) {
                 Spacer()
                 Image(nsImage: menuBarIcon).renderingMode(.template).resizable().frame(width: 22, height: 22)
@@ -353,7 +353,7 @@ struct Frame: View {
         return ZStack(alignment: .topLeading) {
             appWindow(lane)
                 .frame(width: appRect.width, height: appRect.height).position(x: appRect.midX, y: appRect.midY)
-                .opacity(1 - 0.5 * prog(t, rt.leg1.0, rt.leg1.1))  // staging: focus follows the link
+                .dimmed(0.55 * prog(t, rt.leg1.0, rt.leg1.1))  // staging: focus follows the link
             // Secondary action: a ring leaves the node when the link reaches it.
             let ring = prog(t, rt.leg1.1, rt.leg1.1 + 0.45)
             Capsule().stroke(lane.dot.opacity(0.6 * (1 - ring)), lineWidth: 2)
