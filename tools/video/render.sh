@@ -4,29 +4,42 @@ set -euo pipefail
 OUT=${1:-docs/multiverse-launch.mp4}
 WORK=$(mktemp -d)
 BIN="$WORK/launch-video"
-swiftc -O -parse-as-library -D SNAPSHOT Sources/*.swift tools/Carbon.swift tools/video/LaunchVideo.swift -o "$BIN"
+swiftc -O -parse-as-library -D SNAPSHOT Sources/*.swift tools/Carbon.swift tools/video/Pieces.swift tools/video/Film.swift \
+  tools/video/Audio.swift tools/video/main.swift -o "$BIN"
+FRAMES=$("$BIN" frames-count)
 
 "$BIN" frames "$WORK/frames"
-ffmpeg -loglevel error -y -framerate 30 -i "$WORK/frames/%04d.png" \
-  -c:v libx264 -preset slow -crf 18 -pix_fmt yuv420p -vf "setsar=1" -movflags +faststart "$OUT"
+"$BIN" audio "$WORK/sound.wav"
+ffmpeg -loglevel error -y -framerate 30 -i "$WORK/frames/%04d.png" -i "$WORK/sound.wav" \
+  -c:v libx264 -preset slow -crf 18 -pix_fmt yuv420p -vf "setsar=1" \
+  -af "loudnorm=I=-16:TP=-2:LRA=11,alimiter=limit=0.79:level=false" -ar 48000 -c:a aac -b:a 192k -shortest -movflags +faststart "$OUT"
 
 # Checks: these must all pass before anyone looks at the film.
 fail=0
 check() { if [ "$2" = "$3" ]; then echo "ok    $1: $2"; else echo "FAIL  $1: got $2, want $3"; fail=1; fi; }
-check "frames rendered" "$(ls "$WORK/frames" | wc -l | tr -d ' ')" 960
+check "frames rendered" "$(ls "$WORK/frames" | wc -l | tr -d ' ')" "$FRAMES"
 probe() { ffprobe -v error -select_streams v:0 -show_entries "stream=$1" -of csv=p=0 "$OUT"; }
-check "encoded frames" "$(ffprobe -v error -count_frames -select_streams v:0 -show_entries stream=nb_read_frames -of csv=p=0 "$OUT")" 960
+check "encoded frames" "$(ffprobe -v error -count_frames -select_streams v:0 -show_entries stream=nb_read_frames -of csv=p=0 "$OUT")" "$FRAMES"
 check "size" "$(probe width,height)" "1920,1080"
 check "frame rate" "$(probe r_frame_rate)" "30/1"
 check "pixel aspect" "$(probe sample_aspect_ratio)" "1:1"
 check "pixel format" "$(probe pix_fmt)" "yuv420p"
-for n in 0 150 431 700 959; do
+# Audio: present, as long as the picture (within a frame), and not clipping.
+check "audio stream" "$(ffprobe -v error -select_streams a:0 -show_entries stream=codec_name -of csv=p=0 "$OUT")" "aac"
+vdur=$(ffprobe -v error -select_streams v:0 -show_entries stream=duration -of csv=p=0 "$OUT")
+adur=$(ffprobe -v error -select_streams a:0 -show_entries stream=duration -of csv=p=0 "$OUT")
+check "audio matches picture" "$(python3 -c "print(abs($vdur-$adur) < 0.05)")" "True"
+peak=$(ffmpeg -i "$OUT" -af volumedetect -f null - 2>&1 | grep max_volume | awk '{print $5}')
+check "audio peak below -1 dB" "$(python3 -c "print($peak < -1)")" "True"
+lufs=$(ffmpeg -i "$OUT" -af ebur128 -f null - 2>&1 | grep -E "^ +I:" | tail -1 | awk '{print $2}')
+check "loudness about -16 LUFS (social)" "$(python3 -c "print(-17.5 < $lufs < -14.5)")" "True"
+for n in 0 150 431 $((FRAMES - 1)); do
   check "re-render frame $n identical" "$("$BIN" same $n)" "same $n"
 done
 
 # Stills of each beat for the look pass.
-mkdir -p tools/video/checks
-for t in 1.5 4.8 8.8 10.5 13.0 17.8 21.8 23.5 26.0 30.0; do
+rm -rf tools/video/checks && mkdir -p tools/video/checks
+for t in 1.0 3.0 5.9 7.0 8.5 11.6 14.0 15.2 17.2 19.5; do
   ffmpeg -loglevel error -y -ss "$t" -i "$OUT" -frames:v 1 "tools/video/checks/t$t.png"
 done
 rm -rf "$WORK"
