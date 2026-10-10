@@ -1,6 +1,6 @@
 import SwiftUI
 
-// Carbon brand pieces shared by the launch image and the launch video.
+// Carbon brand pieces used by the launch image.
 
 enum Carbon {
     static let bg = Color(hex: 0x0F100F)

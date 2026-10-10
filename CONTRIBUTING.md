@@ -21,10 +21,9 @@ Needs macOS 14+ and Xcode's command line tools. There are no dependencies.
 - UI follows the Carbon identity in `Sources/Brand.swift` (graphite, ivory, olive; medium-weight
   headings, plain language).
 
-## Launch film and images
+## Launch images
 
-`tools/` renders the launch images and film from code. See `tools/video/RULES.md` before editing the
-film; `tools/video/render.sh` renders and checks it.
+`tools/` renders the launch images from code (see the comment at the top of `tools/LaunchImage.swift`).
 
 ## Reporting a security problem
 

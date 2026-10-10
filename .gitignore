@@ -1,3 +1,5 @@
 build/
 .DS_Store
-tools/video/checks/
+# Launch film: kept locally, not published
+tools/video/
+docs/*.mp4
