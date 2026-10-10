@@ -6,27 +6,33 @@ let fps = 30.0
 
 /// Every beat's start, in seconds. Picture and sound both read these, so they can't drift apart.
 enum T {
-    /// Cold open: a tangled mess of apps snaps into two clean pathways.
-    static let untangle = 1.3, untangled = 2.3
-    /// Dots start flowing along the neat lines; one reaches a node every `flowBeat` seconds.
-    static let flow = untangle + 0.6, flowBeat = 0.25
-    static let intro = 4.6
-    static let duration = intro + 24.2
-    static let lives = intro + 2.0
-    static let menu = intro + 4.0
-    static let cuts = intro + 6.6
-    static let workRoute = intro + 9.0
-    static let personalRoute = intro + 12.0
-    static let sideRoute = intro + 14.4
-    static let both = intro + 16.6
-    static let gather = intro + 18.4
-    static let end = intro + 19.9
+    /// Music tempo: the dots, the groove and the beat grid all use it.
+    static let bpm = 112.0, quarter = 60 / bpm
+
+    /// Cold open: a tangled mess of apps snaps into two clean pathways, then the headline holds.
+    static let untangle = 1.4, untangled = 2.4
+    /// Dots start flowing along the neat lines; one reaches a node every `flowBeat` (an eighth note).
+    static let flow = untangle + 0.6, flowBeat = quarter / 2
+    static let intro = 5.6
+
+    // Beats. Each is long enough to read its caption: it appears, lands, and holds 1.3 s or more.
+    static let lives = intro + 2.4        // "Same app."
+    static let menu = lives + 3.1         // "Different lives." and two chats
+    static let cuts = menu + 3.4          // "Meet Multiverse." and the menu
+    static let card2 = cuts + 1.9         // each card: name + "Copy of … · own logins"
+    static let dock = cuts + 3.8
+    static let workRoute = cuts + 6.1     // "Both, side by side."
+    static let personalRoute = workRoute + 4.3
+    static let sideRoute = personalRoute + 3.8
+    static let both = sideRoute + 4.0
+    static let gather = both + 3.0        // "Every link in its own universe."
+    static let end = gather + 1.6
+    static let duration = end + 4.4
 
     // Inside beats
     static let split = intro + 0.3, invert = intro + 0.62
     static let menuOpen = menu + 0.42
-    static let hoverSlack = menu + 1.35, hoverPersonal = menu + 1.85
-    static let card2 = cuts + 0.6, dock = cuts + 1.2
+    static let hoverSlack = menu + 1.6, hoverPersonal = menu + 2.3
     static let morphEnd = gather + 1.0
     static let plateLand = gather + 1.32
 }
@@ -40,11 +46,11 @@ struct RouteTimes {
     var leg1: (Double, Double) { (at(0.95), at(1.6)) }
     var leg2: (Double, Double) { (at(1.6), at(2.25)) }
     var open: Double { at(2.15) }
-    var caption: Double { at(2.4) }
+    var caption: Double { at(2.15) }  // with the browser opening, so it has time to be read
 }
-let workTimes = RouteTimes(start: T.workRoute, k: 1)
-let personalTimes = RouteTimes(start: T.personalRoute, k: 0.85)
-let sideTimes = RouteTimes(start: T.sideRoute, k: 0.78)
+let workTimes = RouteTimes(start: T.workRoute, k: 1.1)
+let personalTimes = RouteTimes(start: T.personalRoute, k: 0.9)
+let sideTimes = RouteTimes(start: T.sideRoute, k: 0.9)
 
 /// One universe's route: which app sends the link, where it goes.
 enum Lane: CaseIterable {
@@ -205,7 +211,7 @@ struct Frame: View {
             Tile(app: "Claude", size: 220)
                 .scaleEffect(x: landed.width * (1 + 0.06 * wind), y: landed.height * (1 - 0.1 * wind), anchor: .bottom)
                 .position(arc(center, CGPoint(x: 760, y: 470), split, bulge: 70))
-            Caption(text: "Same app.", opacity: snap(prog(t, T.intro + 0.55, T.intro + 0.8))).position(x: 960, y: 800)
+            Caption(text: "Same app.", opacity: snap(prog(t, T.intro + 0.55, T.intro + 0.9))).position(x: 960, y: 800)
         }
         .opacity(appear)
         .scaleEffect(mix(0.9, 1, appear))
@@ -221,7 +227,7 @@ struct Frame: View {
                 .frame(width: left.width, height: left.height).position(x: left.midX, y: left.midY)
             personalChat.opacity(content).offset(y: CGFloat(1 - snap(content)) * 18).overlay(Tile(app: "Claude", ivory: true, size: 220).opacity(1 - content).scaleEffect(1 - g * 0.3))
                 .frame(width: right.width, height: right.height).position(x: right.midX, y: right.midY)
-            Caption(text: "Different lives.", opacity: snap(prog(t, s + 0.5, s + 0.75))).position(x: 960, y: 900)
+            Caption(text: "Different lives.", opacity: snap(prog(t, s + 0.5, s + 0.9))).position(x: 960, y: 900)
         }
     }
 
@@ -279,7 +285,7 @@ struct Frame: View {
                 .scaleEffect(mix(0.96, 1.5, menu), anchor: .top)
                 .opacity(menu)
                 .position(x: 1560, y: 330)
-            Caption(text: "Meet Multiverse.", opacity: snap(prog(t, s + 0.7, s + 0.95))).position(x: 560, y: 260)
+            Caption(text: "Meet Multiverse.", opacity: snap(prog(t, s + 0.7, s + 1.1))).position(x: 560, y: 260)
         }
     }
 
@@ -313,7 +319,7 @@ struct Frame: View {
 
     private var dock: some View {
         VStack(spacing: 46) {
-            Caption(text: "Both, side by side.", opacity: snap(prog(t, T.dock + 0.4, T.dock + 0.65)))
+            Caption(text: "Both, side by side.", opacity: snap(prog(t, T.dock + 0.4, T.dock + 0.8)))
             HStack(spacing: 22) {
                 ForEach(Array(Self.dockItems.enumerated()), id: \.offset) { i, item in
                     let p = pop(prog(t, T.dock + Double(i) * 0.06, T.dock + 0.24 + Double(i) * 0.06))
@@ -373,7 +379,7 @@ struct Frame: View {
                 .opacity(1 - prog(t, rt.at(1.3), rt.at(1.55)))
             Circle().stroke((lane.ivory ? ink : Carbon.ivory).opacity(1 - click), lineWidth: 2)
                 .frame(width: 12 + 60 * click, height: 12 + 60 * click).position(linkPoint).opacity(click > 0 ? 1 : 0)
-            Caption(text: "\(lane.node) → \(lane.browserLabel).", opacity: snap(prog(t, rt.caption, rt.caption + 0.25)))
+            Caption(text: "\(lane.node) → \(lane.browserLabel).", opacity: snap(prog(t, rt.caption, rt.caption + 0.45)))
                 .position(x: 960, y: 900)
         }
         .opacity(appear)
@@ -400,7 +406,7 @@ struct Frame: View {
                 routeRow(y: 350 + CGFloat(i) * 210, lane: lane,
                          draw: ease(prog(t, T.both + Double(i) * 0.1, T.both + 0.5 + Double(i) * 0.1)))
             }
-            Caption(text: "Every link in its own universe.", opacity: snap(prog(t, T.both + 0.45, T.both + 0.7))).position(x: 960, y: 170)
+            Caption(text: "Every link in its own universe.", opacity: snap(prog(t, T.both + 0.45, T.both + 0.9))).position(x: 960, y: 170)
         }
         .opacity(appear)
     }

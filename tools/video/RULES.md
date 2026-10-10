@@ -32,7 +32,16 @@ Helpers in `Pieces.swift`; use them rather than linear moves.
 
 ## Spec
 
-1920×1080, 30 fps, 28.8 s (864 frames), H.264, yuv420p, SAR 1:1, AAC stereo 48 kHz.
+1920×1080, 30 fps, about 39 s (see `T.duration`), H.264, yuv420p, SAR 1:1, AAC stereo 48 kHz.
+
+Reading time: every caption appears with room to be read (about 0.25 s a word plus a beat) and holds
+fully visible for 1.3 s or more before the next cut. When a beat feels rushed, lengthen the beat, not the
+animation.
+
+Music: Kandinsky meets cypherpunk at 112 BPM in A minor. Shapes have sounds (circle = sine bell,
+square = square-wave pluck, line = glide); a crushed FM arpeggio, sub bass, offbeat hats and a soft
+kick. The groove starts at the snap (order) and stops when the routes fold into the icon; the mess
+before it stays unmetered.
 
 Pace: entrances under 0.35 s (`snap`), pops land with a small overshoot (`pop`), hard cuts between
 beats. Sound is restrained: a quiet pad, dry clicks/pops, a rising tone while a link travels, a chime
