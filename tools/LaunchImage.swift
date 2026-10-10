@@ -50,12 +50,9 @@ struct LaunchImage: View {
                 }
                 .frame(width: 720, alignment: .leading)
 
-                // Right: the product
-                VStack(alignment: .leading, spacing: 22) {
-                    RoutingCard()
-                    DockStrip()
-                }
-                .frame(width: 640)
+                // Right: links flowing from apps, through Multiverse, to each universe's browser
+                RoutingFlow(hub: appIcon)
+                    .frame(width: 660, height: 640)
             }
             .padding(.horizontal, 96)
         }
@@ -74,6 +71,108 @@ private struct Pill: View {
             .padding(.horizontal, 14).padding(.vertical, 8)
             .background(Capsule().fill(.white.opacity(0.07)))
             .overlay(Capsule().stroke(.white.opacity(0.12)))
+    }
+}
+
+/// Apps on the left, Multiverse in the middle, each universe's browser on the right; every line is
+/// coloured by the universe its link ends up in.
+private struct RoutingFlow: View {
+    let hub: NSImage
+
+    struct Source { let icon: NSImage; let app: String; let link: String; let toWork: Bool }
+    private let sources = [
+        Source(icon: icon("Slack", tint: workNS), app: "Work Slack", link: "linear.app/ENG-212", toWork: true),
+        Source(icon: icon("Notion"), app: "Notion", link: "figma.com/q3-roadmap", toWork: true),
+        Source(icon: icon("Telegram"), app: "Telegram", link: "airbnb.com/rooms/482", toWork: false),
+        Source(icon: icon("Spotify"), app: "Spotify", link: "youtube.com/watch", toWork: false),
+    ]
+
+    private let size = CGSize(width: 660, height: 640)
+    private func sourceY(_ i: Int) -> CGFloat { 95 + CGFloat(i) * 150 }
+    private var hubPoint: CGPoint { CGPoint(x: 392, y: 320) }
+    private func destY(_ work: Bool) -> CGFloat { work ? 175 : 465 }
+    /// Lines start after the app's text, so they never cross it.
+    private let lineStartX: CGFloat = 238, destX: CGFloat = 580
+
+    var body: some View {
+        ZStack(alignment: .topLeading) {
+            // Lines
+            Canvas { ctx, _ in
+                for (i, s) in sources.enumerated() {
+                    let color = s.toWork ? work : personal
+                    var p = Path()
+                    let start = CGPoint(x: lineStartX, y: sourceY(i))
+                    p.move(to: start)
+                    p.addCurve(to: CGPoint(x: hubPoint.x - 52, y: hubPoint.y),
+                               control1: CGPoint(x: 300, y: sourceY(i)), control2: CGPoint(x: 290, y: hubPoint.y))
+                    ctx.stroke(p, with: .linearGradient(Gradient(colors: [color.opacity(0.25), color.opacity(0.9)]),
+                                                        startPoint: start, endPoint: hubPoint), lineWidth: 3)
+                    ctx.fill(Path(ellipseIn: CGRect(x: start.x - 4, y: start.y - 4, width: 8, height: 8)), with: .color(color))
+                }
+                for toWork in [true, false] {
+                    let color = toWork ? work : personal
+                    var p = Path()
+                    let from = CGPoint(x: hubPoint.x + 52, y: hubPoint.y), to = CGPoint(x: destX - 84, y: destY(toWork))
+                    p.move(to: from)
+                    p.addCurve(to: to, control1: CGPoint(x: 470, y: hubPoint.y), control2: CGPoint(x: 455, y: destY(toWork)))
+                    ctx.stroke(p, with: .color(color.opacity(0.95)), lineWidth: 5)
+                    // Arrowhead
+                    var head = Path()
+                    head.move(to: CGPoint(x: to.x + 2, y: to.y))
+                    head.addLine(to: CGPoint(x: to.x - 12, y: to.y - 8))
+                    head.addLine(to: CGPoint(x: to.x - 12, y: to.y + 8))
+                    head.closeSubpath()
+                    ctx.fill(head, with: .color(color))
+                }
+            }
+            .frame(width: size.width, height: size.height)
+
+            // Apps and the links they opened
+            ForEach(Array(sources.enumerated()), id: \.offset) { i, s in
+                HStack(spacing: 12) {
+                    Image(nsImage: s.icon).resizable().frame(width: 52, height: 52)
+                    VStack(alignment: .leading, spacing: 3) {
+                        Text(s.app).font(.system(size: 15, weight: .semibold)).foregroundStyle(.white.opacity(0.85))
+                        Text(s.link).font(.system(size: 12, design: .monospaced)).foregroundStyle(.white.opacity(0.45))
+                            .lineLimit(1)
+                    }
+                }
+                .frame(width: 228, alignment: .leading)
+                .position(x: 114, y: sourceY(i))
+            }
+
+            // Multiverse
+            VStack(spacing: 10) {
+                Image(nsImage: hub).resizable().frame(width: 92, height: 92)
+                    .clipShape(RoundedRectangle(cornerRadius: 21, style: .continuous))
+                    .overlay(RoundedRectangle(cornerRadius: 21, style: .continuous).stroke(.white.opacity(0.15)))
+                    .shadow(color: .white.opacity(0.25), radius: 30)
+                Text("Multiverse").font(.system(size: 15, weight: .semibold)).foregroundStyle(.white.opacity(0.7))
+            }
+            .position(x: hubPoint.x, y: hubPoint.y + 15)
+
+            // Universes
+            Destination(title: "💼 Work", browser: icon("Google Chrome"), browserName: "Chrome", color: work)
+                .position(x: destX, y: destY(true))
+            Destination(title: "🏠 Personal", browser: icon("Dia", tint: personalNS), browserName: "Personal Dia", color: personal)
+                .position(x: destX, y: destY(false))
+        }
+        .frame(width: size.width, height: size.height)
+    }
+}
+
+private struct Destination: View {
+    let title: String, browser: NSImage, browserName: String, color: Color
+    var body: some View {
+        VStack(spacing: 8) {
+            Image(nsImage: browser).resizable().frame(width: 64, height: 64)
+            Text(title).font(.system(size: 19, weight: .bold)).foregroundStyle(.white)
+            Text("opens in \(browserName)").font(.system(size: 13)).foregroundStyle(.white.opacity(0.55))
+        }
+        .padding(.vertical, 16).frame(width: 160)
+        .background(RoundedRectangle(cornerRadius: 20).fill(color.opacity(0.16)))
+        .overlay(RoundedRectangle(cornerRadius: 20).stroke(color.opacity(0.6), lineWidth: 1.5))
+        .shadow(color: color.opacity(0.35), radius: 24)
     }
 }
 
