@@ -93,7 +93,7 @@ struct ContentUnavailable: View {
     var body: some View {
         VStack(spacing: 8) {
             Image(nsImage: NSApp.applicationIconImage).resizable().frame(width: 64, height: 64)
-            SectionLabel("Create a universe, like Work or Personal.")
+            SectionLabel("Your multiverse is empty. Create a universe, like Work or Personal.")
             Text("Put apps in it, and links you open from those apps go to that universe's browser.")
                 .foregroundStyle(Brand.muted)
         }
