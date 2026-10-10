@@ -9,8 +9,8 @@ Keep work and personal apart on one Mac, even inside the same app.
 Multiverse is a small menu bar app. You make **universes** (say 💼 Work and 🏠 Personal), put apps
 in them, and:
 
-- **Copies of the same app live side by side.** A "Work Slack" next to your personal Slack, a
-  second Notion for a side project. Each copy has its own name, its own Dock icon (tinted in the
+- **Copies of the same app live side by side.** A work Claude next to your personal Claude, two
+  ChatGPTs signed into different accounts, a second Cursor for a side project. Each copy has its own name, its own Dock icon (tinted in the
   universe's colour, if you like) and, for apps that support it, its own logins.
 - **Links open in the right browser.** A link you click in a work app opens in your work browser.
   A link from a personal app opens in your personal browser. That can be a separate profile of the
@@ -51,7 +51,7 @@ A copy is an APFS clone of the original app, so it takes almost no extra disk sp
 changes the clone's name, bundle id and icon, then signs it again for this Mac. The original app is
 never touched.
 
-- **Separate logins:** Electron apps (Slack, Notion, Cursor, Discord…) and Chromium browsers
+- **Separate logins:** Electron apps (Claude, ChatGPT, Cursor, Slack, Notion…) and Chromium browsers
   (Chrome, Brave, Edge, Arc, Dia…) can keep their data in a different folder. The copy starts
   itself with its own folder in `~/Library/Application Support/Multiverse/<name>`, so you sign in
   to it separately. Other apps share logins with the original, and Multiverse tells you so before
@@ -72,8 +72,9 @@ never touched.
   hardened runtime, because the hardened runtime would refuse to load the original developer's
   frameworks into an ad-hoc-signed app. That makes a copy easier for other software already running as
   you to tamper with than the original. Only copy apps you'd trust that way.
-- **Browsers:** a copy of a browser keeps the original's bundle id, because some browsers (Dia, for
-  one) refuse to start under a different one. Multiverse tells the copy and the original apart by
+- **Browsers:** a copy of a Chromium-based app that opens links (browsers like Dia and Arc, and
+  ChatGPT, which has a browser built in) keeps the original's bundle id, because these hand off to the
+  running original when the id differs. Multiverse tells the copy and the original apart by
   location. They also share the browser's macOS preferences file, but not their profiles.
 - **Not supported:** Apple's built-in apps in `/System`, because macOS won't launch re-signed
   system apps. Some features tied to the original developer's signature may not work in a copy

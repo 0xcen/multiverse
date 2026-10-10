@@ -133,13 +133,29 @@ extension Mixer {
 
 func filmSoundtrack() -> Mixer {
     var m = Mixer(seconds: T.duration)
+    // Cold open: a busy scatter of ticks over rising air, then everything snaps into place.
+    var n = Noise(state: 2024)
+    for i in 0..<70 {
+        let at = pow(Double(i) / 70, 0.8) * (T.untangle - 0.05)
+        let f = 300 + (n.next() + 1) * 900
+        if i % 3 == 0 { m.pop(at, f, pan: n.next(), gain: 0.07) } else { m.click(at, pan: n.next(), gain: 0.12, seed: UInt64(i), tone: f * 2) }
+    }
+    m.whoosh(from: 0, to: T.untangle, gain: 0.16, seed: 77)
+    m.thump(T.untangle, gain: 0.5)
+    for i in 0..<Frame.openApps.count {   // tiles landing in order: a quick rising run
+        let notes = [261.63, 293.66, 329.63, 392, 440, 523.25, 587.33, 659.25, 783.99, 880, 1046.5, 1174.66]
+        m.pop(T.untangle + 0.08 + Double(i) * 0.025, notes[i], pan: -0.8 + Double(i) * 0.14, gain: 0.1)
+    }
+    m.chime(T.untangle + 0.4, 659.25, pan: 0.5, gain: 0.08, decay: 0.8)
+    m.chime(T.untangle + 0.46, 880, pan: 0.5, gain: 0.08, decay: 0.8)
+    m.whoosh(from: T.intro - 0.3, to: T.intro, gain: 0.1, seed: 78)
     // Bed: a chord per act; brighter at the end.
-    m.pad(from: 0, to: T.workRoute + 0.2, [110, 164.81, 246.94, 261.63])           // A2 E3 B3 C4
+    m.pad(from: T.untangle, to: T.workRoute + 0.2, [110, 164.81, 246.94, 261.63])  // A2 E3 B3 C4
     m.pad(from: T.workRoute - 0.2, to: T.gather + 0.2, [87.31, 130.81, 220, 329.63]) // F2 C3 A3 E4
     m.pad(from: T.plateLand - 0.1, to: T.duration, [130.81, 196, 329.63, 493.88], gain: 0.02) // Cmaj7
 
     // 1. One becomes two
-    m.pop(0.03, 330)
+    m.pop(T.intro + 0.03, 330)
     m.click(T.split, pan: 0, gain: 0.3)
     m.pop(T.split + 0.02, 440, pan: 0.4)
     m.chime(T.invert, 1318.5, pan: 0.45, gain: 0.07, decay: 0.5)

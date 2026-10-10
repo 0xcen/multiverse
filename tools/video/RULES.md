@@ -16,7 +16,7 @@ Read before changing the film (`Film.swift` for picture, `Audio.swift` for sound
 
 ## Spec
 
-1920×1080, 30 fps, 22 s (660 frames), H.264, yuv420p, SAR 1:1, AAC stereo 48 kHz.
+1920×1080, 30 fps, 25 s (750 frames), H.264, yuv420p, SAR 1:1, AAC stereo 48 kHz.
 
 Pace: entrances under 0.35 s (`snap`), pops land with a small overshoot (`pop`), hard cuts between
 beats. Sound is restrained: a quiet pad, dry clicks/pops, a rising tone while a link travels, a chime
@@ -24,8 +24,11 @@ where it lands, one low hit when the icon lands. Picture and sound read the same
 
 ## Screenplay: "One Mac. Different universes."
 
+Times below are after the 3 s cold open (`T.intro`).
+
 | Time | Beat |
 | --- | --- |
+| cold open, 0–3 s | Frame 0 is already busy: two dozen apps drifting, links tangled between them. At 1.3 s it all snaps into two grids whose lines fan cleanly into Work and Personal. "Run copies of any app. Organize your workflow." |
 | 0–2 s | One app icon separates into two copies. The second inverts to ivory. "Same app." |
 | 2–4 s | Both open into the same app with different accounts, side by side. "Different lives." |
 | 4–6.6 s | Pull back to the Multiverse menu showing Work and Personal. "Meet Multiverse." |

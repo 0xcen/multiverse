@@ -103,6 +103,59 @@ struct ChatApp: View {
     }
 }
 
+/// An AI chat app: history sidebar with the signed-in account, then a prompt and an answer with a link.
+struct AIChat: View {
+    let app: String
+    let account: String
+    let plan: String
+    let history: [String]
+    let prompt: String
+    let answer: String
+    let link: String
+    var ivory = false
+    var body: some View {
+        let fg = ivory ? ink : Carbon.ivory
+        let dim = ivory ? ink.opacity(0.5) : Carbon.muted
+        HStack(spacing: 0) {
+            VStack(alignment: .leading, spacing: 14) {
+                HStack(spacing: 10) {
+                    Tile(app: app, ivory: !ivory, size: 34)
+                    Text(app).font(.system(size: 26, weight: .semibold)).foregroundStyle(fg)
+                }
+                Text("Recents").font(.system(size: 16, weight: .semibold)).foregroundStyle(dim).padding(.top, 6)
+                ForEach(Array(history.enumerated()), id: \.offset) { i, h in
+                    Text(h).font(.system(size: 20, weight: i == 0 ? .semibold : .regular)).foregroundStyle(i == 0 ? fg : dim)
+                        .lineLimit(1)
+                }
+                Spacer()
+                HStack(spacing: 8) {
+                    Circle().fill(ivory ? Carbon.olive : Carbon.gray).frame(width: 34, height: 34)
+                        .overlay(Text(String(account.prefix(1)).uppercased()).font(.system(size: 17, weight: .bold)).foregroundStyle(ink))
+                    VStack(alignment: .leading, spacing: 1) {
+                        Text(account).font(.system(size: 17)).foregroundStyle(fg.opacity(0.8)).lineLimit(1).fixedSize()
+                        Text(plan).font(.system(size: 14)).foregroundStyle(dim)
+                    }
+                }
+            }
+            .padding(24).frame(width: 270).frame(maxHeight: .infinity, alignment: .topLeading)
+            .background(ivory ? Color(hex: 0xEAE8DF) : Color(hex: 0x161715))
+            VStack(alignment: .trailing, spacing: 22) {
+                Text(prompt).font(.system(size: 22)).foregroundStyle(fg)
+                    .padding(.horizontal, 18).padding(.vertical, 12)
+                    .background(RoundedRectangle(cornerRadius: 16).fill(ivory ? Color(hex: 0xE2E0D6) : Color(hex: 0x262825)))
+                    .fixedSize(horizontal: false, vertical: true)
+                VStack(alignment: .leading, spacing: 10) {
+                    Text(answer).font(.system(size: 22)).foregroundStyle(fg.opacity(0.88)).fixedSize(horizontal: false, vertical: true)
+                    Text(link).font(.system(size: 22, weight: .medium)).underline().foregroundStyle(fg).fixedSize()
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                Spacer()
+            }
+            .padding(26)
+        }
+    }
+}
+
 /// A browser window opened on a URL.
 struct BrowserPage: View {
     let url: String
@@ -132,11 +185,11 @@ struct MenuMock: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 2) {
             section("💼 Work")
-            item("Slack", app: "Slack")
-            item("Notion", app: "Notion")
+            item("Claude", app: "Claude")
+            item("ChatGPT", app: "ChatGPT")
             section("🏠 Personal")
-            item("Personal Slack", app: "Slack", ivory: true)
-            item("Personal Notion", app: "Notion", ivory: true)
+            item("Personal Claude", app: "Claude", ivory: true)
+            item("Personal ChatGPT", app: "ChatGPT", ivory: true)
             item("Personal Dia", app: "Dia", ivory: true)
             divider()
             item("Recent links", trailing: "›")
@@ -211,12 +264,16 @@ struct Route: View {
         ZStack {
             Path { p in p.move(to: from); p.addCurve(to: to, control1: c1, control2: c2) }
                 .stroke(Carbon.border, style: StrokeStyle(lineWidth: 3, lineCap: .round))
+            // Dark outline under the ivory line keeps it visible where it crosses an ivory window.
+            Path { p in p.move(to: from); p.addCurve(to: to, control1: c1, control2: c2) }
+                .trim(from: 0, to: progress)
+                .stroke(ink, style: StrokeStyle(lineWidth: 6, lineCap: .round))
             Path { p in p.move(to: from); p.addCurve(to: to, control1: c1, control2: c2) }
                 .trim(from: 0, to: progress)
                 .stroke(Carbon.ivory, style: StrokeStyle(lineWidth: 3, lineCap: .round))
             if pulse && progress > 0 && progress < 1 {
                 let head = bezier(from, c1, c2, to, progress)
-                Circle().fill(Carbon.ivory).frame(width: 18, height: 18).position(head)
+                Circle().fill(Carbon.ivory).frame(width: 18, height: 18).overlay(Circle().stroke(ink, lineWidth: 2)).position(head)
                 Circle().stroke(Carbon.ivory.opacity(0.35), lineWidth: 2).frame(width: 40, height: 40).position(head)
             }
         }

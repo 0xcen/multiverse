@@ -39,7 +39,7 @@ done
 
 # Stills of each beat for the look pass.
 rm -rf tools/video/checks && mkdir -p tools/video/checks
-for t in 1.0 3.0 5.9 7.0 8.5 11.6 14.0 15.2 17.2 19.5; do
+for t in 0.0 0.8 1.5 2.0 2.6 4.0 6.0 8.9 10.0 11.5 14.6 17.0 18.2 20.2 22.5; do
   ffmpeg -loglevel error -y -ss "$t" -i "$OUT" -frames:v 1 "tools/video/checks/t$t.png"
 done
 rm -rf "$WORK"

@@ -6,18 +6,21 @@ let fps = 30.0
 
 /// Every beat's start, in seconds. Picture and sound both read these, so they can't drift apart.
 enum T {
-    static let duration = 22.0
-    static let lives = 2.0
-    static let menu = 4.0
-    static let cuts = 6.6
-    static let workRoute = 9.0
-    static let personalRoute = 12.0
-    static let both = 14.4
-    static let gather = 16.2
-    static let end = 17.7
+    /// Cold open: a tangled mess of apps snaps into two clean pathways.
+    static let untangle = 1.3, untangled = 2.3
+    static let intro = 3.0
+    static let duration = intro + 22.0
+    static let lives = intro + 2.0
+    static let menu = intro + 4.0
+    static let cuts = intro + 6.6
+    static let workRoute = intro + 9.0
+    static let personalRoute = intro + 12.0
+    static let both = intro + 14.4
+    static let gather = intro + 16.2
+    static let end = intro + 17.7
 
     // Inside beats
-    static let split = 0.3, invert = 0.62          // after 0
+    static let split = intro + 0.3, invert = intro + 0.62
     static let menuOpen = menu + 0.42
     static let hoverSlack = menu + 1.35, hoverPersonal = menu + 1.85
     static let card2 = cuts + 0.6, dock = cuts + 1.2
@@ -57,6 +60,7 @@ struct Frame: View {
 
     @ViewBuilder private var scene: some View {
         switch t {
+        case ..<T.intro: coldOpen
         case ..<T.lives: oneBecomesTwo
         case ..<T.menu: differentLives
         case ..<T.cuts: meetMultiverse
@@ -71,17 +75,90 @@ struct Frame: View {
 
     // MARK: Beats
 
+    /// The apps in the cold open: each as a Work tile and an ivory Personal copy.
+    static let openApps = ["Claude", "ChatGPT", "Cursor", "Google Chrome", "Dia", "Arc",
+                           "Granola", "Notion", "Linear", "Figma", "Slack", "Telegram"]
+
+    /// Fixed pseudo-random numbers in 0…1 (same every render).
+    static func rand(_ i: Int, _ k: Int) -> Double {
+        var x = UInt64(i &* 7919 &+ k &* 104729 &+ 17)
+        x ^= x >> 33; x = x &* 0xff51afd7ed558ccd; x ^= x >> 33; x = x &* 0xc4ceb9fe1a85ec53; x ^= x >> 33
+        return Double(x % 10_000) / 10_000
+    }
+
+    /// 0–1.3 s chaos, 1.3–2.3 s it snaps into two rows whose lines fan into Work and Personal, then clears.
+    private var coldOpen: some View {
+        let order = snap(prog(t, T.untangle, T.untangle + 0.55))
+        let nodes = pop(prog(t, T.untangle + 0.35, T.untangle + 0.65))
+        let leave = prog(t, T.intro - 0.35, T.intro)
+        let count = Self.openApps.count * 2
+        let workNode = CGPoint(x: 1000, y: 312), personalNode = CGPoint(x: 1000, y: 768)
+        func tile(_ i: Int) -> (app: String, ivory: Bool) { (Self.openApps[i % Self.openApps.count], i >= Self.openApps.count) }
+        func chaosPoint(_ i: Int) -> CGPoint {
+            let base = CGPoint(x: 120 + Self.rand(i, 1) * 1680, y: 110 + Self.rand(i, 2) * 860)
+            let drift = CGPoint(x: (Self.rand(i, 3) - 0.5) * 160, y: (Self.rand(i, 4) - 0.5) * 120)
+            return CGPoint(x: base.x + drift.x * t, y: base.y + drift.y * t)
+        }
+        func orderPoint(_ i: Int) -> CGPoint {
+            // Each universe as a 4×3 grid on the left; its lines fan out to its node.
+            let group = i / Self.openApps.count, g = i % Self.openApps.count
+            return CGPoint(x: 170 + CGFloat(g % 4) * 112, y: (group == 0 ? 200 : 656) + CGFloat(g / 4) * 112)
+        }
+        func position(_ i: Int) -> CGPoint {
+            // Stagger the snap a little per tile so it reads as a sweep.
+            let local = snap(prog(t, T.untangle + Double(i % Self.openApps.count) * 0.018, T.untangle + 0.5 + Double(i % Self.openApps.count) * 0.018))
+            return mix(chaosPoint(i), orderPoint(i), local)
+        }
+        return ZStack(alignment: .topLeading) {
+            // Lines: tangled between random tiles, then each runs cleanly to its universe.
+            Canvas { ctx, _ in
+                for i in 0..<count {
+                    let from = position(i)
+                    let other = chaosPoint((i * 7 + 5) % count)
+                    let target = i < Self.openApps.count ? workNode : personalNode
+                    let end = mix(other, CGPoint(x: target.x - 105, y: target.y), order)
+                    let wild1 = CGPoint(x: from.x + (Self.rand(i, 5) - 0.5) * 900, y: from.y + (Self.rand(i, 6) - 0.5) * 700)
+                    let wild2 = CGPoint(x: end.x + (Self.rand(i, 7) - 0.5) * 900, y: end.y + (Self.rand(i, 8) - 0.5) * 700)
+                    let midX = (from.x + end.x) / 2
+                    let c1 = mix(wild1, CGPoint(x: midX, y: from.y), order), c2 = mix(wild2, CGPoint(x: midX, y: end.y), order)
+                    var p = Path(); p.move(to: from); p.addCurve(to: end, control1: c1, control2: c2)
+                    ctx.stroke(p, with: .color(order > 0.5 ? Carbon.ivory.opacity(0.35 + 0.25 * order) : Carbon.muted.opacity(0.45)),
+                               lineWidth: mix(1.5, 2, order))
+                }
+            }
+            .frame(width: stage.width, height: stage.height)
+            ForEach(0..<count, id: \.self) { i in
+                let tl = tile(i)
+                Tile(app: tl.app, ivory: tl.ivory, size: mix(CGFloat(70 + Self.rand(i, 9) * 50), 92, order))
+                    .rotationEffect(.degrees((Self.rand(i, 10) - 0.5) * 50 * (1 - order) + (Self.rand(i, 11) - 0.5) * 20 * t * (1 - order)))
+                    .position(position(i))
+            }
+            Node(name: "Work", dot: Carbon.ivory).scaleEffect(nodes).opacity(min(1, nodes * 2)).position(workNode)
+            Node(name: "Personal", dot: Carbon.olive).scaleEffect(nodes).opacity(min(1, nodes * 2)).position(personalNode)
+            let words = snap(prog(t, T.untangle + 0.4, T.untangle + 0.65)), sub = snap(prog(t, T.untangle + 0.55, T.untangle + 0.8))
+            VStack(alignment: .leading, spacing: 18) {
+                Headline(lines: ["Run copies", "of any app."], size: 96).opacity(words).offset(x: CGFloat(1 - words) * 40)
+                Text("Organize your workflow.").font(.system(size: 40)).tracking(-1).foregroundStyle(Carbon.muted)
+                    .opacity(sub).offset(x: CGFloat(1 - sub) * 40)
+            }
+            .fixedSize()
+            .position(x: 1530, y: 540)
+        }
+        .scaleEffect(mix(1.06, 1, snap(prog(t, 0, T.untangle))) * mix(1, 0.92, leave))
+        .opacity(1 - leave)
+    }
+
     private var oneBecomesTwo: some View {
-        let appear = snap(prog(t, 0, 0.3))
+        let appear = snap(prog(t, T.intro, T.intro + 0.25))
         let split = pop(prog(t, T.split, T.split + 0.32)), invert = snap(prog(t, T.invert, T.invert + 0.2))
         return ZStack {
             ZStack {
-                Tile(app: "Slack", size: 220)
-                Tile(app: "Slack", ivory: true, size: 220).opacity(invert)
+                Tile(app: "Claude", size: 220)
+                Tile(app: "Claude", ivory: true, size: 220).opacity(invert)
             }
             .position(x: 960 + 200 * split, y: 470)
-            Tile(app: "Slack", size: 220).position(x: 960 - 200 * split, y: 470)
-            Caption(text: "Same app.", opacity: snap(prog(t, 0.55, 0.8))).position(x: 960, y: 800)
+            Tile(app: "Claude", size: 220).position(x: 960 - 200 * split, y: 470)
+            Caption(text: "Same app.", opacity: snap(prog(t, T.intro + 0.55, T.intro + 0.8))).position(x: 960, y: 800)
         }
         .opacity(appear)
         .scaleEffect(mix(0.9, 1, appear))
@@ -93,32 +170,46 @@ struct Frame: View {
         let left = mix(CGRect(x: 650, y: 360, width: 220, height: 220), CGRect(x: 120, y: 190, width: 820, height: 560), g)
         let right = mix(CGRect(x: 1050, y: 360, width: 220, height: 220), CGRect(x: 980, y: 190, width: 820, height: 560), g)
         return ZStack(alignment: .topLeading) {
-            workChat.opacity(content).overlay(Tile(app: "Slack", size: 220).opacity(1 - content).scaleEffect(1 - g * 0.3))
+            workChat.opacity(content).overlay(Tile(app: "Claude", size: 220).opacity(1 - content).scaleEffect(1 - g * 0.3))
                 .frame(width: left.width, height: left.height).position(x: left.midX, y: left.midY)
-            personalChat.opacity(content).overlay(Tile(app: "Slack", ivory: true, size: 220).opacity(1 - content).scaleEffect(1 - g * 0.3))
+            personalChat.opacity(content).overlay(Tile(app: "Claude", ivory: true, size: 220).opacity(1 - content).scaleEffect(1 - g * 0.3))
                 .frame(width: right.width, height: right.height).position(x: right.midX, y: right.midY)
             Caption(text: "Different lives.", opacity: snap(prog(t, s + 0.5, s + 0.75))).position(x: 960, y: 900)
         }
     }
 
     private var workChat: some View {
-        Window(title: "Slack — Acme") {
-            ChatApp(workspace: "Acme", account: "sam@acme.com", channel: "launch",
-                    messages: [("Priya", "Review moved to 3pm", nil), ("Leo", "Spec is here:", "linear.app/acme/ENG-212")])
+        Window(title: "Claude — Acme") {
+            AIChat(app: "Claude", account: "sam@acme.com", plan: "Acme · Team plan",
+                   history: ["API rate limits", "Q3 launch plan", "Refactor auth flow"],
+                   prompt: "Where are our rate limits documented?",
+                   answer: "They're in the platform docs, under Limits:", link: "docs.acme.dev/limits")
         }
     }
 
     private var personalChat: some View {
-        Window(title: "Personal Slack — Family", ivory: true) {
-            ChatApp(workspace: "Family", account: "sam@gmail.com", channel: "weekend",
-                    messages: [("Mum", "Dinner on Sunday?", nil), ("Alex", "This for Saturday?", "airbnb.com/rooms/48213")], ivory: true)
+        Window(title: "Personal Claude", ivory: true) {
+            AIChat(app: "Claude", account: "sam@gmail.com", plan: "Pro plan",
+                   history: ["Lisbon weekend", "Sourdough schedule", "Running plan"],
+                   prompt: "Find us a place in Lisbon for Saturday",
+                   answer: "This one has a terrace and fits four:", link: "airbnb.com/rooms/48213", ivory: true)
+        }
+    }
+
+    /// Route beat: Personal uses ChatGPT, to show any app works.
+    private var personalChatGPT: some View {
+        Window(title: "Personal ChatGPT", ivory: true) {
+            AIChat(app: "ChatGPT", account: "sam@gmail.com", plan: "Plus plan",
+                   history: ["Lisbon weekend", "Birthday ideas", "Sourdough schedule"],
+                   prompt: "Find us a place in Lisbon for Saturday",
+                   answer: "This one has a terrace and fits four:", link: "airbnb.com/rooms/48213", ivory: true)
         }
     }
 
     private var meetMultiverse: some View {
         let s = T.menu
         let z = snap(prog(t, s, s + 0.5)), menu = snap(prog(t, T.menuOpen, T.menuOpen + 0.2))
-        let highlight: String? = t > T.hoverPersonal ? "Personal Slack" : (t > T.hoverSlack ? "Slack" : nil)
+        let highlight: String? = t > T.hoverPersonal ? "Personal Claude" : (t > T.hoverSlack ? "Claude" : nil)
         return ZStack(alignment: .topLeading) {
             ZStack(alignment: .topLeading) {
                 workChat.frame(width: 820, height: 560).position(x: 530, y: 470)
@@ -146,8 +237,8 @@ struct Frame: View {
     }
 
     @ViewBuilder private var copiesCuts: some View {
-        if t < T.card2 { copyCard(app: "Slack", name: "Personal Slack", start: T.cuts) }
-        else if t < T.dock { copyCard(app: "Notion", name: "Personal Notion", start: T.card2) }
+        if t < T.card2 { copyCard(app: "Claude", name: "Personal Claude", start: T.cuts) }
+        else if t < T.dock { copyCard(app: "ChatGPT", name: "Personal ChatGPT", start: T.card2) }
         else { dock }
     }
 
@@ -168,7 +259,7 @@ struct Frame: View {
         .frame(width: stage.width, height: stage.height)
     }
 
-    static let dockItems: [(String, Bool)] = [("Slack", false), ("Slack", true), ("Notion", false), ("Notion", true),
+    static let dockItems: [(String, Bool)] = [("Claude", false), ("Claude", true), ("ChatGPT", false), ("ChatGPT", true),
                                               ("Google Chrome", false), ("Dia", true)]
 
     private var dock: some View {
@@ -198,8 +289,8 @@ struct Frame: View {
         let leg1 = ease(prog(t, rt.leg1.0, rt.leg1.1)), leg2 = ease(prog(t, rt.leg2.0, rt.leg2.1))
         let open = pop(prog(t, rt.open, rt.open + 0.3))
         let appRect = CGRect(x: 70, y: 260, width: 640, height: 470)
-        let linkPoint = CGPoint(x: 470, y: 541)
-        let lineStart = CGPoint(x: personal ? 640 : 620, y: 541)
+        let linkPoint = CGPoint(x: 465, y: 510)             // where the link is clicked
+        let lineStart = CGPoint(x: personal ? 622 : 582, y: 510)  // just after the link text
         let nodePoint = CGPoint(x: 960, y: 495)
         let browserRect = CGRect(x: 1210, y: 260, width: 640, height: 470)
         return ZStack(alignment: .topLeading) {
@@ -213,7 +304,7 @@ struct Frame: View {
                 .scaleEffect(leg1 >= 1 ? mix(1.08, 1, snap(prog(t, rt.leg1.1, rt.leg1.1 + 0.25))) : 1)
                 .position(nodePoint)
             Window(title: personal ? "Personal Dia" : "Chrome", ivory: personal) {
-                BrowserPage(url: personal ? "airbnb.com/rooms/48213" : "linear.app/acme/ENG-212", ivory: personal)
+                BrowserPage(url: personal ? "airbnb.com/rooms/48213" : "docs.acme.dev/limits", ivory: personal)
             }
             .frame(width: browserRect.width, height: browserRect.height)
             .position(x: browserRect.midX, y: browserRect.midY)
@@ -233,14 +324,14 @@ struct Frame: View {
     }
 
     private var workChatSmall: some View { workChat }
-    private var personalChatSmall: some View { personalChat }
+    private var personalChatSmall: some View { personalChatGPT }
 
     private var bothRoutes: some View {
         let appear = snap(prog(t, T.both, T.both + 0.3))
         return ZStack(alignment: .topLeading) {
-            routeRow(y: 380, app: "Slack", ivory: false, node: "Work", dot: Carbon.ivory, browser: "Google Chrome", label: "Chrome",
+            routeRow(y: 380, app: "Claude", ivory: false, node: "Work", dot: Carbon.ivory, browser: "Google Chrome", label: "Chrome",
                      draw: ease(prog(t, T.both, T.both + 0.5)))
-            routeRow(y: 640, app: "Slack", ivory: true, node: "Personal", dot: Carbon.olive, browser: "Dia", label: "Personal Dia",
+            routeRow(y: 640, app: "ChatGPT", ivory: true, node: "Personal", dot: Carbon.olive, browser: "Dia", label: "Personal Dia",
                      draw: ease(prog(t, T.both + 0.12, T.both + 0.62)))
             Caption(text: "Personal stays personal.", opacity: snap(prog(t, T.both + 0.45, T.both + 0.7))).position(x: 960, y: 170)
         }

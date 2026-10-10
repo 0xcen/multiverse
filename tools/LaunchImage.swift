@@ -5,7 +5,7 @@ import SwiftUI
 //   swiftc -parse-as-library -D SNAPSHOT Sources/*.swift tools/Carbon.swift tools/LaunchImage.swift -o /tmp/launch-image
 //   /tmp/launch-image && sips -z 1350 2400 docs/launch.png && sips -z 1200 1600 docs/launch-4x3.png
 
-private let apps = ["Notion", "Claude", "Slack"]
+private let apps = ["Claude", "ChatGPT", "Cursor"]
 
 struct LaunchWide: View {
     var body: some View {

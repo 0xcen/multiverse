@@ -65,7 +65,7 @@ enum Builder {
             atPath: app.appendingPathComponent("Contents/Frameworks").path)) ?? []
         return frameworks.contains { f in
             ["Electron Framework", "Chrom", "Browser Framework", "Chrome Framework", "Edge Framework",
-             "Vivaldi Framework", "ArcCore"].contains { f.contains($0) }
+             "Vivaldi Framework", "ArcCore", "Codex Framework"].contains { f.contains($0) }
         }
     }
 
@@ -126,9 +126,12 @@ enum Builder {
         }
         defer { flock(lock, LOCK_UN); close(lock) }
         removeLeftoverStaging()
-        if entry.kind == .clone, isBrowser(URL(fileURLWithPath: expand(entry.sourcePath))) {
-            // Browsers keep their own bundle id: some (Dia) hand off to the running original instead
-            // of starting when the id differs. Copies are still told apart by path and owner marker.
+        let sourceURL = URL(fileURLWithPath: expand(entry.sourcePath))
+        if entry.kind == .clone, isBrowser(sourceURL), supportsProfiles(sourceURL) {
+            // Chromium browsers keep their own bundle id: some (Dia) hand off to the running original
+            // instead of starting when the id differs. Copies are still told apart by path and owner
+            // marker. Other apps that merely open links (e.g. ChatGPT) get a new id, so they don't share
+            // the original's data or get confused with it.
             entry.bundleID = Bundle(url: URL(fileURLWithPath: expand(entry.sourcePath)))?.bundleIdentifier
         } else if entry.bundleID?.isEmpty ?? true {
             entry.bundleID = defaultBundleID(for: entry.name)
