@@ -609,15 +609,22 @@ private struct PermissionsStep: View {
                     NSWorkspace.shared.open(URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_AppBundles")!)
                 }
 
-                VStack(alignment: .leading, spacing: 8) {
+                VStack(alignment: .leading, spacing: 10) {
                     Label("What your copies will ask", systemImage: "info.circle").font(.headline)
-                    Text("macOS treats each copy as a new app, so the first time it opens it asks again for what the original had:")
-                        .foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text("• **“… Safe Storage” in your keychain**: enter your Mac password and click Always Allow, or it can't keep you signed in.")
-                        Text("• **Folders, camera, microphone, screen recording**: allow what you'd allow the original.")
+                    Text("macOS treats each copy as a new app, so the first time a copy opens you'll see prompts like these:")
+                        .font(.callout).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+                    HStack(alignment: .top, spacing: 12) {
+                        PromptSketch(
+                            symbol: "lock.fill", tint: .yellow,
+                            text: "“Work Slack” wants to use “Slack Safe Storage” in your keychain.",
+                            password: true, buttons: ["Always Allow", "Deny", "Allow"], highlight: "Always Allow",
+                            caption: "Enter your Mac password, then **Always Allow**. It's where the app keeps your logins.")
+                        PromptSketch(
+                            symbol: "folder.fill", tint: .blue,
+                            text: "“Work Slack” would like to access files in your Documents folder.",
+                            password: false, buttons: ["Don't Allow", "Allow"], highlight: "Allow",
+                            caption: "Folders, camera, microphone, screen: allow what you'd allow the original.")
                     }
-                    .font(.callout).fixedSize(horizontal: false, vertical: true)
                 }
                 .padding(14)
                 .background(RoundedRectangle(cornerRadius: 10).fill(.background.secondary))
@@ -669,6 +676,47 @@ private struct PermissionsStep: View {
                 showOnboarding()  // come back to the front after the prompt
             }
         }
+    }
+}
+
+/// A small drawing of a macOS prompt, with the button to press highlighted.
+private struct PromptSketch: View {
+    let symbol: String
+    let tint: Color
+    let text: String
+    let password: Bool
+    let buttons: [String]
+    let highlight: String
+    let caption: LocalizedStringKey
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            VStack(alignment: .leading, spacing: 8) {
+                HStack(alignment: .top, spacing: 8) {
+                    Image(systemName: symbol).font(.title2).foregroundStyle(tint).frame(width: 26)
+                    Text(text).font(.caption.bold()).fixedSize(horizontal: false, vertical: true)
+                }
+                if password {
+                    RoundedRectangle(cornerRadius: 4).fill(.quaternary).frame(height: 16)
+                        .overlay(Text("••••••••").font(.caption2).padding(.leading, 6), alignment: .leading)
+                }
+                HStack(spacing: 5) {
+                    Spacer(minLength: 0)
+                    ForEach(buttons, id: \.self) { b in
+                        Text(b).font(.caption2.weight(b == highlight ? .bold : .regular))
+                            .lineLimit(1)
+                            .padding(.horizontal, 7).padding(.vertical, 3)
+                            .background(Capsule().fill(b == highlight ? Color.accentColor.opacity(0.2) : Color.secondary.opacity(0.15)))
+                            .overlay(Capsule().stroke(b == highlight ? Color.accentColor : .clear, lineWidth: 2))
+                    }
+                }
+            }
+            .padding(10)
+            .background(RoundedRectangle(cornerRadius: 10).fill(.background))
+            .overlay(RoundedRectangle(cornerRadius: 10).stroke(.quaternary))
+            Text(caption).font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+        }
+        .frame(maxWidth: .infinity, alignment: .topLeading)
     }
 }
 
