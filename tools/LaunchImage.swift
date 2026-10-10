@@ -29,7 +29,7 @@ struct LaunchWide: View {
                     UniversePanel(name: "Work", dot: Carbon.ivory, apps: apps, ivory: false,
                                   browser: "Google Chrome", browserLabel: "Chrome", iconSize: 66, fontSize: 24)
                     UniversePanel(name: "Personal", dot: Carbon.olive, apps: apps, ivory: true,
-                                  browser: "Dia", browserLabel: "Personal Dia", iconSize: 66, fontSize: 24)
+                                  browser: "Dia", browserLabel: "Dia", iconSize: 66, fontSize: 24)
                     UniversePanel(name: "Side project", dot: Carbon.gray, apps: apps, ivory: false,
                                   browser: "Dia", browserLabel: "Side project Dia", iconSize: 66, fontSize: 24)
                 }
@@ -71,7 +71,7 @@ struct LaunchFourThree: View {
                 UniversePanel(name: "Work", dot: Carbon.ivory, apps: apps, ivory: false,
                               browser: "Google Chrome", browserLabel: "Chrome", iconSize: 120, fontSize: 36)
                 UniversePanel(name: "Personal", dot: Carbon.olive, apps: apps, ivory: true,
-                              browser: "Dia", browserLabel: "Personal Dia", iconSize: 120, fontSize: 36)
+                              browser: "Dia", browserLabel: "Dia", iconSize: 120, fontSize: 36)
             }
             Spacer(minLength: 30)
             Text("Separate logins. The right browser.")

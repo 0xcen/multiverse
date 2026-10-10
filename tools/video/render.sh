@@ -8,11 +8,18 @@ swiftc -O -parse-as-library -D SNAPSHOT Sources/*.swift tools/Carbon.swift tools
   tools/video/Audio.swift tools/video/main.swift -o "$BIN"
 FRAMES=$("$BIN" frames-count)
 
+# Two-pass loudness normalisation to -16 LUFS: measure, then apply exactly.
+loudnorm_filter() {
+  ffmpeg -hide_banner -i "$1" -af loudnorm=I=-16:TP=-2:LRA=11:print_format=json -f null - 2>&1 | python3 -c "
+import sys, json, re
+j = json.loads(re.search(r'\{[^{}]*\}', sys.stdin.read(), re.S).group(0))
+print('loudnorm=I=-16:TP=-2:LRA=11:linear=true:measured_I={input_i}:measured_TP={input_tp}:measured_LRA={input_lra}:measured_thresh={input_thresh}:offset={target_offset}'.format(**j))"
+}
 "$BIN" frames "$WORK/frames"
 "$BIN" audio "$WORK/sound.wav"
 ffmpeg -loglevel error -y -framerate 30 -i "$WORK/frames/%04d.png" -i "$WORK/sound.wav" \
   -c:v libx264 -preset slow -crf 18 -pix_fmt yuv420p -vf "setsar=1" \
-  -af "loudnorm=I=-16:TP=-2:LRA=11,alimiter=limit=0.79:level=false" -ar 48000 -c:a aac -b:a 192k -shortest -movflags +faststart "$OUT"
+  -af "$(loudnorm_filter "$WORK/sound.wav"),alimiter=limit=0.79:level=false" -ar 48000 -c:a aac -b:a 192k -shortest -movflags +faststart "$OUT"
 
 # Checks: these must all pass before anyone looks at the film.
 fail=0
@@ -39,7 +46,7 @@ done
 
 # Stills of each beat for the look pass.
 rm -rf tools/video/checks && mkdir -p tools/video/checks
-for t in 0.0 0.8 1.5 2.0 2.6 4.0 6.0 8.9 10.0 11.5 14.6 17.0 18.2 20.2 22.5; do
+for t in 0.0 0.8 1.6 2.6 3.8 5.6 7.6 10.5 11.6 13.1 16.2 18.6 21.0 21.8 23.0 25.5; do
   ffmpeg -loglevel error -y -ss "$t" -i "$OUT" -frames:v 1 "tools/video/checks/t$t.png"
 done
 rm -rf "$WORK"

@@ -8,16 +8,19 @@ let fps = 30.0
 enum T {
     /// Cold open: a tangled mess of apps snaps into two clean pathways.
     static let untangle = 1.3, untangled = 2.3
-    static let intro = 3.0
-    static let duration = intro + 22.0
+    /// Dots start flowing along the neat lines; one reaches a node every `flowBeat` seconds.
+    static let flow = untangle + 0.6, flowBeat = 0.25
+    static let intro = 4.6
+    static let duration = intro + 24.2
     static let lives = intro + 2.0
     static let menu = intro + 4.0
     static let cuts = intro + 6.6
     static let workRoute = intro + 9.0
     static let personalRoute = intro + 12.0
-    static let both = intro + 14.4
-    static let gather = intro + 16.2
-    static let end = intro + 17.7
+    static let sideRoute = intro + 14.4
+    static let both = intro + 16.6
+    static let gather = intro + 18.4
+    static let end = intro + 19.9
 
     // Inside beats
     static let split = intro + 0.3, invert = intro + 0.62
@@ -41,8 +44,26 @@ struct RouteTimes {
 }
 let workTimes = RouteTimes(start: T.workRoute, k: 1)
 let personalTimes = RouteTimes(start: T.personalRoute, k: 0.85)
+let sideTimes = RouteTimes(start: T.sideRoute, k: 0.78)
 
-let frameCount = Int(fps * T.duration)
+/// One universe's route: which app sends the link, where it goes.
+enum Lane: CaseIterable {
+    case work, personal, side
+    var node: String { ["Work", "Personal", "Side project"][index] }
+    var dot: Color { [Carbon.ivory, Carbon.olive, Carbon.gray][index] }
+    var ivory: Bool { self == .personal }
+    var app: String { ["Claude", "ChatGPT", "Cursor"][index] }
+    var appLabel: String { ["Claude", "Personal ChatGPT", "Side project Cursor"][index] }
+    var browser: String { ["Google Chrome", "Dia", "Dia"][index] }
+    var browserLabel: String { ["Chrome", "Dia", "Side project Dia"][index] }
+    var url: String { ["docs.acme.dev/limits", "airbnb.com/rooms/48213", "vercel.com/docs/deploy"][index] }
+    var times: RouteTimes { [workTimes, personalTimes, sideTimes][index] }
+    /// Where the link text ends in the app window (the line starts there).
+    var linkEndX: CGFloat { [582, 622, 600][index] }
+    private var index: Int { Lane.allCases.firstIndex(of: self)! }
+}
+
+let frameCount = Int((fps * T.duration).rounded())
 
 struct Frame: View {
     let n: Int
@@ -65,8 +86,9 @@ struct Frame: View {
         case ..<T.menu: differentLives
         case ..<T.cuts: meetMultiverse
         case ..<T.workRoute: copiesCuts
-        case ..<T.personalRoute: route(personal: false, times: workTimes)
-        case ..<T.both: route(personal: true, times: personalTimes)
+        case ..<T.personalRoute: route(.work)
+        case ..<T.sideRoute: route(.personal)
+        case ..<T.both: route(.side)
         case ..<T.gather: bothRoutes
         case ..<T.end: gatherIntoIcon
         default: endCard
@@ -104,10 +126,16 @@ struct Frame: View {
             let group = i / Self.openApps.count, g = i % Self.openApps.count
             return CGPoint(x: 170 + CGFloat(g % 4) * 112, y: (group == 0 ? 200 : 656) + CGFloat(g / 4) * 112)
         }
+        // Anticipation: just before the snap everything pulls in toward the middle.
+        let gather = sin(.pi / 2 * prog(t, T.untangle - 0.2, T.untangle)) * (1 - prog(t, T.untangle, T.untangle + 0.15))
+        func landTime(_ i: Int) -> Double { T.untangle + 0.42 + Double(i % Self.openApps.count) * 0.018 }
         func position(_ i: Int) -> CGPoint {
-            // Stagger the snap a little per tile so it reads as a sweep.
-            let local = snap(prog(t, T.untangle + Double(i % Self.openApps.count) * 0.018, T.untangle + 0.5 + Double(i % Self.openApps.count) * 0.018))
-            return mix(chaosPoint(i), orderPoint(i), local)
+            // Stagger the snap per tile so it reads as a sweep; travel on arcs; overshoot a little.
+            let g = Double(i % Self.openApps.count)
+            let local = popSoft(prog(t, T.untangle + g * 0.018, landTime(i)))
+            let c = chaosPoint(i)
+            let pulled = mix(c, CGPoint(x: 960, y: 540), 0.08 * gather)
+            return arc(pulled, orderPoint(i), local, bulge: i % 2 == 0 ? 80 : -80)
         }
         return ZStack(alignment: .topLeading) {
             // Lines: tangled between random tiles, then each runs cleanly to its universe.
@@ -124,12 +152,24 @@ struct Frame: View {
                     var p = Path(); p.move(to: from); p.addCurve(to: end, control1: c1, control2: c2)
                     ctx.stroke(p, with: .color(order > 0.5 ? Carbon.ivory.opacity(0.35 + 0.25 * order) : Carbon.muted.opacity(0.45)),
                                lineWidth: mix(1.5, 2, order))
+                    // Once ordered, a dot flows along each line. Lines are offset by a quarter period, so
+                    // a dot reaches a node every flowBeat seconds (the soundtrack ticks on those).
+                    if t > T.flow {
+                        let phase = Double(i % 4) / 4
+                        let x = ((t - T.flow) / (T.flowBeat * 4) + phase).truncatingRemainder(dividingBy: 1)
+                        let fade = min(1, (t - T.flow) / 0.3) * (1 - leave)
+                        let dot = bezier(from, c1, c2, end, x)
+                        ctx.fill(Path(ellipseIn: CGRect(x: dot.x - 5, y: dot.y - 5, width: 10, height: 10)),
+                                 with: .color(Carbon.ivory.opacity(fade * (0.4 + 0.6 * x))))
+                    }
                 }
             }
             .frame(width: stage.width, height: stage.height)
             ForEach(0..<count, id: \.self) { i in
                 let tl = tile(i)
+                let land = squash(t - landTime(i), amount: 0.16)
                 Tile(app: tl.app, ivory: tl.ivory, size: mix(CGFloat(70 + Self.rand(i, 9) * 50), 92, order))
+                    .scaleEffect(x: land.width * (1 - 0.06 * gather), y: land.height * (1 - 0.06 * gather))
                     .rotationEffect(.degrees((Self.rand(i, 10) - 0.5) * 50 * (1 - order) + (Self.rand(i, 11) - 0.5) * 20 * t * (1 - order)))
                     .position(position(i))
             }
@@ -151,13 +191,20 @@ struct Frame: View {
     private var oneBecomesTwo: some View {
         let appear = snap(prog(t, T.intro, T.intro + 0.25))
         let split = pop(prog(t, T.split, T.split + 0.32)), invert = snap(prog(t, T.invert, T.invert + 0.2))
+        // Anticipation: the icon squeezes just before it splits. Arcs: both halves travel on curves.
+        let wind = sin(.pi * prog(t, T.split - 0.16, T.split + 0.04))
+        let landed = squash(t - (T.split + 0.3)), flip = squash(t - (T.invert + 0.12), amount: 0.08)
+        let center = CGPoint(x: 960, y: 470)
         return ZStack {
             ZStack {
                 Tile(app: "Claude", size: 220)
                 Tile(app: "Claude", ivory: true, size: 220).opacity(invert)
             }
-            .position(x: 960 + 200 * split, y: 470)
-            Tile(app: "Claude", size: 220).position(x: 960 - 200 * split, y: 470)
+            .scaleEffect(x: landed.width * flip.width, y: landed.height * flip.height, anchor: .bottom)
+            .position(arc(center, CGPoint(x: 1160, y: 470), split, bulge: -70))
+            Tile(app: "Claude", size: 220)
+                .scaleEffect(x: landed.width * (1 + 0.06 * wind), y: landed.height * (1 - 0.1 * wind), anchor: .bottom)
+                .position(arc(center, CGPoint(x: 760, y: 470), split, bulge: 70))
             Caption(text: "Same app.", opacity: snap(prog(t, T.intro + 0.55, T.intro + 0.8))).position(x: 960, y: 800)
         }
         .opacity(appear)
@@ -170,9 +217,9 @@ struct Frame: View {
         let left = mix(CGRect(x: 650, y: 360, width: 220, height: 220), CGRect(x: 120, y: 190, width: 820, height: 560), g)
         let right = mix(CGRect(x: 1050, y: 360, width: 220, height: 220), CGRect(x: 980, y: 190, width: 820, height: 560), g)
         return ZStack(alignment: .topLeading) {
-            workChat.opacity(content).overlay(Tile(app: "Claude", size: 220).opacity(1 - content).scaleEffect(1 - g * 0.3))
+            workChat.opacity(content).offset(y: CGFloat(1 - snap(content)) * 18).overlay(Tile(app: "Claude", size: 220).opacity(1 - content).scaleEffect(1 - g * 0.3))
                 .frame(width: left.width, height: left.height).position(x: left.midX, y: left.midY)
-            personalChat.opacity(content).overlay(Tile(app: "Claude", ivory: true, size: 220).opacity(1 - content).scaleEffect(1 - g * 0.3))
+            personalChat.opacity(content).offset(y: CGFloat(1 - snap(content)) * 18).overlay(Tile(app: "Claude", ivory: true, size: 220).opacity(1 - content).scaleEffect(1 - g * 0.3))
                 .frame(width: right.width, height: right.height).position(x: right.midX, y: right.midY)
             Caption(text: "Different lives.", opacity: snap(prog(t, s + 0.5, s + 0.75))).position(x: 960, y: 900)
         }
@@ -228,7 +275,7 @@ struct Frame: View {
             .padding(.horizontal, 30).frame(width: stage.width, height: 44)
             .background(Color(hex: 0x141513))
             .opacity(z)
-            MenuMock(highlight: highlight)
+            MenuMock(highlight: highlight, reveal: prog(t, T.menuOpen, T.menuOpen + 0.55))
                 .scaleEffect(mix(0.96, 1.5, menu), anchor: .top)
                 .opacity(menu)
                 .position(x: 1560, y: 330)
@@ -248,7 +295,9 @@ struct Frame: View {
             HStack(spacing: 24) {
                 Tile(app: app, size: 200)
                 Image(systemName: "arrow.right").font(.system(size: 44, weight: .light)).foregroundStyle(Carbon.muted)
+                let land = squash(t - (start + 0.22), amount: 0.14)
                 Tile(app: app, ivory: true, size: 200).scaleEffect(mix(0.8, 1, p))
+                    .scaleEffect(x: land.width, y: land.height, anchor: .bottom)
             }
             VStack(alignment: .leading, spacing: 12) {
                 Text(name).font(.system(size: 84, weight: .medium)).tracking(-3).foregroundStyle(Carbon.ivory)
@@ -260,7 +309,7 @@ struct Frame: View {
     }
 
     static let dockItems: [(String, Bool)] = [("Claude", false), ("Claude", true), ("ChatGPT", false), ("ChatGPT", true),
-                                              ("Google Chrome", false), ("Dia", true)]
+                                              ("Google Chrome", false), ("Dia", true), ("Dia", false)]
 
     private var dock: some View {
         VStack(spacing: 46) {
@@ -269,7 +318,8 @@ struct Frame: View {
                 ForEach(Array(Self.dockItems.enumerated()), id: \.offset) { i, item in
                     let p = pop(prog(t, T.dock + Double(i) * 0.06, T.dock + 0.24 + Double(i) * 0.06))
                     VStack(spacing: 10) {
-                        Tile(app: item.0, ivory: item.1, size: 130)
+                        let land = squash(t - (T.dock + 0.22 + Double(i) * 0.06), amount: 0.14)
+                        Tile(app: item.0, ivory: item.1, size: 130).scaleEffect(x: land.width, y: land.height, anchor: .bottom)
                         Circle().fill(Carbon.muted).frame(width: 7, height: 7)
                     }
                     .scaleEffect(mix(0.5, 1, p)).opacity(min(1, p * 2))
@@ -282,81 +332,97 @@ struct Frame: View {
         .frame(width: stage.width, height: stage.height)
     }
 
-    private func route(personal: Bool, times rt: RouteTimes) -> some View {
+    private func route(_ lane: Lane) -> some View {
+        let rt = lane.times
         let appear = snap(prog(t, rt.start, rt.at(0.25)))
         let cursorIn = snap(prog(t, rt.cursor.0, rt.cursor.1))
         let click = prog(t, rt.click, rt.click + 0.3)
         let leg1 = ease(prog(t, rt.leg1.0, rt.leg1.1)), leg2 = ease(prog(t, rt.leg2.0, rt.leg2.1))
         let open = pop(prog(t, rt.open, rt.open + 0.3))
         let appRect = CGRect(x: 70, y: 260, width: 640, height: 470)
-        let linkPoint = CGPoint(x: 465, y: 510)             // where the link is clicked
-        let lineStart = CGPoint(x: personal ? 622 : 582, y: 510)  // just after the link text
+        let linkPoint = CGPoint(x: 465, y: 510)                // where the link is clicked
+        let lineStart = CGPoint(x: lane.linkEndX, y: 510)       // just after the link text
         let nodePoint = CGPoint(x: 960, y: 495)
         let browserRect = CGRect(x: 1210, y: 260, width: 640, height: 470)
         return ZStack(alignment: .topLeading) {
-            Group {
-                if personal { personalChatSmall } else { workChatSmall }
-            }
-            .frame(width: appRect.width, height: appRect.height).position(x: appRect.midX, y: appRect.midY)
-            Route(from: lineStart, to: CGPoint(x: nodePoint.x - 150, y: nodePoint.y), progress: leg1)
-            Route(from: CGPoint(x: nodePoint.x + 150, y: nodePoint.y), to: CGPoint(x: browserRect.minX, y: browserRect.midY), progress: leg2)
-            Node(name: personal ? "Personal" : "Work", dot: personal ? Carbon.olive : Carbon.ivory, lit: leg1 >= 1)
+            appWindow(lane)
+                .frame(width: appRect.width, height: appRect.height).position(x: appRect.midX, y: appRect.midY)
+                .opacity(1 - 0.5 * prog(t, rt.leg1.0, rt.leg1.1))  // staging: focus follows the link
+            // Secondary action: a ring leaves the node when the link reaches it.
+            let ring = prog(t, rt.leg1.1, rt.leg1.1 + 0.45)
+            Capsule().stroke(lane.dot.opacity(0.6 * (1 - ring)), lineWidth: 2)
+                .frame(width: 300 + 120 * CGFloat(ring), height: 64 + 70 * CGFloat(ring))
+                .position(nodePoint).opacity(ring > 0 && ring < 1 ? 1 : 0)
+            Route(from: lineStart, to: CGPoint(x: nodePoint.x - 170, y: nodePoint.y), progress: leg1)
+            Route(from: CGPoint(x: nodePoint.x + 170, y: nodePoint.y), to: CGPoint(x: browserRect.minX, y: browserRect.midY), progress: leg2)
+            Node(name: lane.node, dot: lane.dot, lit: leg1 >= 1)
                 .scaleEffect(leg1 >= 1 ? mix(1.08, 1, snap(prog(t, rt.leg1.1, rt.leg1.1 + 0.25))) : 1)
                 .position(nodePoint)
-            Window(title: personal ? "Personal Dia" : "Chrome", ivory: personal) {
-                BrowserPage(url: personal ? "airbnb.com/rooms/48213" : "docs.acme.dev/limits", ivory: personal)
+            Window(title: lane.browserLabel, ivory: lane.ivory) {
+                BrowserPage(url: lane.url, ivory: lane.ivory, load: prog(t, rt.open + 0.1, rt.open + 0.65))
             }
             .frame(width: browserRect.width, height: browserRect.height)
             .position(x: browserRect.midX, y: browserRect.midY)
             .opacity(min(1, open * 2)).scaleEffect(mix(0.9, 1, open))
+            .scaleEffect(x: squash(t - (rt.open + 0.28), amount: 0.04).width, y: squash(t - (rt.open + 0.28), amount: 0.04).height)
             RoundedRectangle(cornerRadius: 16).stroke(Carbon.border, style: StrokeStyle(lineWidth: 1.5, dash: [8, 8]))
                 .frame(width: browserRect.width, height: browserRect.height)
                 .position(x: browserRect.midX, y: browserRect.midY).opacity(open > 0 ? 0 : 1)
-            Cursor().position(mix(CGPoint(x: linkPoint.x + 260, y: 980), CGPoint(x: linkPoint.x + 14, y: linkPoint.y + 18), cursorIn))
+            Cursor().position(arc(CGPoint(x: linkPoint.x + 260, y: 980), CGPoint(x: linkPoint.x + 14, y: linkPoint.y + 18), cursorIn, bulge: 90))
                 .scaleEffect(t >= rt.click && t < rt.click + 0.08 ? 0.9 : 1)
                 .opacity(1 - prog(t, rt.at(1.3), rt.at(1.55)))
-            Circle().stroke(Carbon.ivory.opacity(1 - click), lineWidth: 2)
+            Circle().stroke((lane.ivory ? ink : Carbon.ivory).opacity(1 - click), lineWidth: 2)
                 .frame(width: 12 + 60 * click, height: 12 + 60 * click).position(linkPoint).opacity(click > 0 ? 1 : 0)
-            Caption(text: personal ? "Personal → Personal Dia." : "Work → Chrome.", opacity: snap(prog(t, rt.caption, rt.caption + 0.25)))
+            Caption(text: "\(lane.node) → \(lane.browserLabel).", opacity: snap(prog(t, rt.caption, rt.caption + 0.25)))
                 .position(x: 960, y: 900)
         }
         .opacity(appear)
     }
 
-    private var workChatSmall: some View { workChat }
-    private var personalChatSmall: some View { personalChatGPT }
+    @ViewBuilder private func appWindow(_ lane: Lane) -> some View {
+        switch lane {
+        case .work: workChat
+        case .personal: personalChatGPT
+        case .side:
+            Window(title: "Side project Cursor") {
+                AIChat(app: "Cursor", account: "sam@indie.dev", plan: "Pro plan",
+                       history: ["Deploy the app", "Fix login bug", "Add dark mode"],
+                       prompt: "How do I deploy this?",
+                       answer: "Vercel's guide covers it step by step:", link: "vercel.com/docs/deploy")
+            }
+        }
+    }
 
     private var bothRoutes: some View {
         let appear = snap(prog(t, T.both, T.both + 0.3))
         return ZStack(alignment: .topLeading) {
-            routeRow(y: 380, app: "Claude", ivory: false, node: "Work", dot: Carbon.ivory, browser: "Google Chrome", label: "Chrome",
-                     draw: ease(prog(t, T.both, T.both + 0.5)))
-            routeRow(y: 640, app: "ChatGPT", ivory: true, node: "Personal", dot: Carbon.olive, browser: "Dia", label: "Personal Dia",
-                     draw: ease(prog(t, T.both + 0.12, T.both + 0.62)))
-            Caption(text: "Personal stays personal.", opacity: snap(prog(t, T.both + 0.45, T.both + 0.7))).position(x: 960, y: 170)
+            ForEach(Array(Lane.allCases.enumerated()), id: \.offset) { i, lane in
+                routeRow(y: 350 + CGFloat(i) * 210, lane: lane,
+                         draw: ease(prog(t, T.both + Double(i) * 0.1, T.both + 0.5 + Double(i) * 0.1)))
+            }
+            Caption(text: "Every link in its own universe.", opacity: snap(prog(t, T.both + 0.45, T.both + 0.7))).position(x: 960, y: 170)
         }
         .opacity(appear)
     }
 
-    private func routeRow(y: CGFloat, app: String, ivory: Bool, node: String, dot: Color, browser: String, label: String,
-                          draw: Double = 1) -> some View {
+    private func routeRow(y: CGFloat, lane: Lane, draw: Double = 1) -> some View {
         ZStack(alignment: .topLeading) {
-            Route(from: CGPoint(x: 470, y: y), to: CGPoint(x: 800, y: y), progress: draw, pulse: false)
-            Route(from: CGPoint(x: 1120, y: y), to: CGPoint(x: 1400, y: y), progress: draw, pulse: false)
-            Tile(app: app, ivory: ivory, size: 120).position(x: 400, y: y)
-            Node(name: node, dot: dot).position(x: 960, y: y)
+            Route(from: CGPoint(x: 470, y: y), to: CGPoint(x: 780, y: y), progress: draw, pulse: false)
+            Route(from: CGPoint(x: 1140, y: y), to: CGPoint(x: 1400, y: y), progress: draw, pulse: false)
+            Tile(app: lane.app, ivory: lane.ivory, size: 120).position(x: 400, y: y)
+            Node(name: lane.node, dot: lane.dot).position(x: 960, y: y)
             HStack(spacing: 16) {
-                Tile(app: browser, ivory: ivory, size: 120)
-                Text(label).font(.system(size: 30)).foregroundStyle(Carbon.ivory).fixedSize()
+                Tile(app: lane.browser, ivory: lane.ivory, size: 120)
+                Text(lane.browserLabel).font(.system(size: 30)).foregroundStyle(Carbon.ivory).fixedSize()
             }
-            .position(x: 1560, y: y)
+            .position(x: 1570, y: y)
         }
     }
 
     // Snappy: rows clear in 0.3 s, become panes in under a second, the plate lands with a bounce.
     private var gatherIntoIcon: some View {
         let fadeRows = prog(t, T.gather, T.gather + 0.3)
-        let morph = ease(prog(t, T.gather + 0.05, T.morphEnd))
+        let morph = anticipate(prog(t, T.gather + 0.05, T.morphEnd), back: 1.1)
         let plate = pop(prog(t, T.morphEnd - 0.05, T.plateLand))
         let iconSize: CGFloat = 300
         let center = CGPoint(x: 960, y: 500)
@@ -365,23 +431,33 @@ struct Frame: View {
         func rectCorners(_ r: CGRect) -> [CGPoint] {
             [CGPoint(x: r.minX, y: r.maxY), CGPoint(x: r.minX, y: r.minY), CGPoint(x: r.maxX, y: r.minY), CGPoint(x: r.maxX, y: r.maxY)]
         }
-        let workRow = CGRect(x: 320, y: 300, width: 1300, height: 160), personalRow = CGRect(x: 320, y: 560, width: 1300, height: 160)
+        // Work and Side project fold into the gray pane, Personal into the ivory one.
+        let workRow = CGRect(x: 320, y: 270, width: 1320, height: 160), personalRow = CGRect(x: 320, y: 480, width: 1320, height: 160)
+        let sideRow = CGRect(x: 320, y: 690, width: 1320, height: 160)
         let back = zip(rectCorners(workRow), Panes.corners(front: false).map(iconPoint)).map { mix($0, $1, morph) }
+        let side = zip(rectCorners(sideRow), Panes.corners(front: false).map(iconPoint)).map { mix($0, $1, morph) }
         let front = zip(rectCorners(personalRow), Panes.corners(front: true).map(iconPoint)).map { mix($0, $1, morph) }
+        let land = squash(t - T.plateLand, amount: 0.16)
         return ZStack(alignment: .topLeading) {
             bothRoutes.opacity(1 - fadeRows)
+            ZStack(alignment: .topLeading) {
             RoundedRectangle(cornerRadius: iconSize * 210 / 1024, style: .continuous)
                 .fill(Carbon.graphite)
                 .frame(width: iconSize * 928 / 1024, height: iconSize * 928 / 1024)
                 .position(center).opacity(min(1, plate * 3)).scaleEffect(mix(0.6, 1, plate))
             Quad(points: front).fill(Carbon.ivory.opacity(mix(0.1, 1, morph)))
+            Quad(points: side).fill(Carbon.gray.opacity(mix(0.1, 1, morph)))
             Quad(points: back).fill(Carbon.gray.opacity(mix(0.1, 1, morph)))
+            }
+            .frame(width: stage.width, height: stage.height)
+            .scaleEffect(x: land.width, y: land.height, anchor: UnitPoint(x: 0.5, y: (500 + 136) / 1080))
         }
     }
 
     private var endCard: some View {
         let s = T.end
-        let lift = snap(prog(t, s, s + 0.35)), words = snap(prog(t, s + 0.12, s + 0.42)), line = snap(prog(t, s + 0.3, s + 0.6))
+        let lift = anticipate(prog(t, s, s + 0.42), back: 1.2)
+        let words = snap(prog(t, s + 0.16, s + 0.46)), line = prog(t, s + 0.32, s + 0.7)
         // The icon picks up exactly where the fold left it (centre 960×500, 300 pt), then lifts.
         return ZStack(alignment: .topLeading) {
             Image(nsImage: Carbon.appIcon).resizable().frame(width: 300, height: 300)
@@ -389,8 +465,16 @@ struct Frame: View {
                 .position(x: 960, y: mix(500, 360, lift))
             Text("Multiverse").font(.system(size: 110, weight: .medium)).tracking(-4).foregroundStyle(Carbon.ivory)
                 .opacity(words).position(x: 960, y: 610 + CGFloat(1 - words) * 24)
-            Text("One Mac. Different universes.").font(.system(size: 46)).tracking(-1).foregroundStyle(Carbon.muted)
-                .opacity(line).position(x: 960, y: 715 + CGFloat(1 - line) * 18)
+            let tagline = ["One", "Mac.", "Different", "universes."]
+            HStack(spacing: 12) {
+                ForEach(Array(tagline.enumerated()), id: \.offset) { i, w in
+                    let p = min(1, max(0, line * 1.5 - Double(i) * 0.16))
+                    Text(w).font(.system(size: 46)).tracking(-1).foregroundStyle(Carbon.muted)
+                        .opacity(p).offset(y: CGFloat(1 - snap(p)) * 16)
+                }
+            }
+            .fixedSize()
+            .position(x: 960, y: 715)
         }
     }
 }

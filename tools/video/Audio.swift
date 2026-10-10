@@ -133,21 +133,43 @@ extension Mixer {
 
 func filmSoundtrack() -> Mixer {
     var m = Mixer(seconds: T.duration)
-    // Cold open: a busy scatter of ticks over rising air, then everything snaps into place.
+    // Cold open, the mess: dense and clashing, getting busier until it stops dead at the snap.
     var n = Noise(state: 2024)
-    for i in 0..<70 {
-        let at = pow(Double(i) / 70, 0.8) * (T.untangle - 0.05)
-        let f = 300 + (n.next() + 1) * 900
-        if i % 3 == 0 { m.pop(at, f, pan: n.next(), gain: 0.07) } else { m.click(at, pan: n.next(), gain: 0.12, seed: UInt64(i), tone: f * 2) }
+    let messEnd = T.untangle - 0.04
+    for i in 0..<240 {                                      // keyboard and mouse clatter
+        let at = pow(Double(i) / 240, 0.7) * messEnd
+        m.click(at, pan: n.next(), gain: 0.08 + 0.1 * Double(i) / 240, seed: UInt64(i), tone: 1500 + (n.next() + 1) * 1800)
     }
-    m.whoosh(from: 0, to: T.untangle, gain: 0.16, seed: 77)
-    m.thump(T.untangle, gain: 0.5)
-    for i in 0..<Frame.openApps.count {   // tiles landing in order: a quick rising run
+    for i in 0..<40 {                                       // pops at random pitches
+        let at = Double(i) / 40 * messEnd + n.next() * 0.01
+        m.pop(max(0, at), 250 + (n.next() + 1) * 700, pan: n.next(), gain: 0.08)
+    }
+    let clash = [740.0, 784, 831, 880, 932, 988, 1047, 1109]  // notification dings a semitone apart
+    for i in 0..<22 {
+        let at = max(0, (Double(i) + 0.5 + n.next() * 0.3) / 22 * messEnd - 0.05)
+        m.chime(at, clash[i % clash.count] * (i % 3 == 0 ? 2 : 1), pan: n.next(), gain: 0.07, decay: 0.25)
+    }
+    for (k, f) in [207.65, 220.0, 233.08, 246.94].enumerated() {  // dissonant drone, swelling
+        m.add(at: 0, length: messEnd, pan: k % 2 == 0 ? -0.5 : 0.5, gain: 0.05) { t in
+            sin(2 * .pi * f * t) * pow(t / messEnd, 1.5) * (1 - exp(-(messEnd - t) / 0.01))
+        }
+    }
+    m.whoosh(from: 0, to: messEnd, gain: 0.2, seed: 77)
+    // The snap: a low hit, then the tiles landing in order as a quick rising run.
+    m.thump(T.untangle, gain: 0.55)
+    for i in 0..<Frame.openApps.count {
         let notes = [261.63, 293.66, 329.63, 392, 440, 523.25, 587.33, 659.25, 783.99, 880, 1046.5, 1174.66]
         m.pop(T.untangle + 0.08 + Double(i) * 0.025, notes[i], pan: -0.8 + Double(i) * 0.14, gain: 0.1)
     }
     m.chime(T.untangle + 0.4, 659.25, pan: 0.5, gain: 0.08, decay: 0.8)
     m.chime(T.untangle + 0.46, 880, pan: 0.5, gain: 0.08, decay: 0.8)
+    // Order: a soft, even tick each time a dot reaches Work or Personal.
+    var beat = T.flow + T.flowBeat
+    var k = 0
+    while beat < T.intro - 0.35 {
+        m.click(beat, pan: k % 2 == 0 ? 0.25 : 0.35, gain: 0.09, seed: 500, tone: k % 4 == 0 ? 1760 : 1320)
+        beat += T.flowBeat; k += 1
+    }
     m.whoosh(from: T.intro - 0.3, to: T.intro, gain: 0.1, seed: 78)
     // Bed: a chord per act; brighter at the end.
     m.pad(from: T.untangle, to: T.workRoute + 0.2, [110, 164.81, 246.94, 261.63])  // A2 E3 B3 C4
@@ -171,12 +193,12 @@ func filmSoundtrack() -> Mixer {
     // 4. Copies
     m.pop(T.cuts, 392, gain: 0.26)
     m.pop(T.card2, 440, gain: 0.26)
-    let scale = [523.25, 587.33, 659.25, 783.99, 880, 1046.5]  // pentatonic up
+    let scale = [523.25, 587.33, 659.25, 783.99, 880, 1046.5, 1174.66]  // pentatonic up
     for i in 0..<Frame.dockItems.count {
         m.pop(T.dock + Double(i) * 0.06, scale[i], pan: -0.6 + Double(i) * 0.24, gain: 0.14)
     }
     // 5–6. Routes: click, the link travels (rising), node, it lands (chime).
-    for (rt, land) in [(workTimes, 659.25), (personalTimes, 880.0)] {
+    for (rt, land) in [(workTimes, 659.25), (personalTimes, 880.0), (sideTimes, 987.77)] {
         m.mouse(rt.click - 0.03, pan: -0.55)
         m.glide(from: rt.leg1.0, to: rt.leg1.1, 330, 520, pan0: -0.5, pan1: 0)
         m.click(rt.leg1.1, gain: 0.18, seed: 7, tone: 1600)
@@ -184,8 +206,9 @@ func filmSoundtrack() -> Mixer {
         m.chime(rt.open, land, pan: 0.55, gain: 0.17)
     }
     // 7. Both routes
-    m.chime(T.both + 0.05, 659.25, pan: -0.2, gain: 0.1, decay: 0.7)
-    m.chime(T.both + 0.17, 880, pan: 0.2, gain: 0.1, decay: 0.7)
+    m.chime(T.both + 0.05, 659.25, pan: -0.3, gain: 0.09, decay: 0.7)
+    m.chime(T.both + 0.15, 880, pan: 0, gain: 0.09, decay: 0.7)
+    m.chime(T.both + 0.25, 987.77, pan: 0.3, gain: 0.09, decay: 0.7)
     // 8. Into the icon, and the title.
     m.whoosh(from: T.gather, to: T.plateLand - 0.02, gain: 0.26, seed: 31)
     m.thump(T.plateLand)

@@ -14,9 +14,25 @@ Read before changing the film (`Film.swift` for picture, `Audio.swift` for sound
    present, same length as the picture and not clipping, identical re-render of sample frames.
    Then look at the stills in `checks/`.
 
+## Principles of animation (Lasseter, 1987)
+
+Helpers in `Pieces.swift`; use them rather than linear moves.
+
+- **Anticipation** (`anticipate`, wind-ups): the icon squeezes before it splits; the tangle pulls in before
+  it snaps; the rows spread before folding into the icon; the icon dips before it lifts.
+- **Squash & stretch** (`squash`): tiles, Dock icons, the copy card and the icon plate flatten on landing
+  and spring back; the travelling dot stretches along its path.
+- **Arcs** (`arc`): the split, the tiles snapping into place and the cursor all travel on curves.
+- **Follow-through & overlapping action**: window contents land after their frames; captions and the
+  tagline arrive word by word; menu rows cascade.
+- **Secondary action**: a ring leaves each node as a link reaches it; the browser page draws in line by line.
+- **Staging**: one focal point at a time; the app window dims once its link is on its way.
+- **Exaggeration**: bigger overshoot on the hero moments (the snap, the icon landing), gentler on long moves.
+- **Slow in & out, timing**: `snap`, `ease`, `pop`; small things move fast, windows a little slower.
+
 ## Spec
 
-1920×1080, 30 fps, 25 s (750 frames), H.264, yuv420p, SAR 1:1, AAC stereo 48 kHz.
+1920×1080, 30 fps, 28.8 s (864 frames), H.264, yuv420p, SAR 1:1, AAC stereo 48 kHz.
 
 Pace: entrances under 0.35 s (`snap`), pops land with a small overshoot (`pop`), hard cuts between
 beats. Sound is restrained: a quiet pad, dry clicks/pops, a rising tone while a link travels, a chime
@@ -24,17 +40,18 @@ where it lands, one low hit when the icon lands. Picture and sound read the same
 
 ## Screenplay: "One Mac. Different universes."
 
-Times below are after the 3 s cold open (`T.intro`).
+Times below are after the 4.6 s cold open (`T.intro`).
 
 | Time | Beat |
 | --- | --- |
-| cold open, 0–3 s | Frame 0 is already busy: two dozen apps drifting, links tangled between them. At 1.3 s it all snaps into two grids whose lines fan cleanly into Work and Personal. "Run copies of any app. Organize your workflow." |
+| cold open, 0–4.6 s | Frame 0 is already busy: two dozen apps drifting, links tangled between them. At 1.3 s it all snaps into two grids whose lines fan cleanly into Work and Personal. "Run copies of any app. Organize your workflow." holds ~2.5 s while dots flow along the lines, ticking as they arrive. Sound: busy, clashing clatter until the snap, then an even tick. |
 | 0–2 s | One app icon separates into two copies. The second inverts to ivory. "Same app." |
 | 2–4 s | Both open into the same app with different accounts, side by side. "Different lives." |
 | 4–6.6 s | Pull back to the Multiverse menu showing Work and Personal. "Meet Multiverse." |
 | 6.6–9 s | Quick cuts: each copy's name and icon, then both in the Dock. |
 | 9–12 s | Click a link in the Work app; a pulse follows app → Work → work browser, which opens it. |
-| 12–14.4 s | The same for Personal. |
-| 14.4–16.2 s | Both routes side by side. "Personal stays personal." |
-| 16.2–17.7 s | The routes fold into two diagonal panes; the icon lands. |
-| 17.7–22 s | "Multiverse. One Mac. Different universes." |
+| 12–14.4 s | The same for Personal: Personal ChatGPT → Dia. |
+| 14.4–16.6 s | And a third: Side project Cursor → Side project Dia. |
+| 16.6–18.4 s | All three routes. "Every link in its own universe." |
+| 18.4–19.9 s | The routes fold into two diagonal panes; the icon lands. |
+| 19.9–24.2 s | "Multiverse. One Mac. Different universes." |
