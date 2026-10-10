@@ -8,6 +8,51 @@ private let work = Color(red: 0.36, green: 0.55, blue: 0.94)
 private let personal = Color(red: 0.19, green: 0.64, blue: 0.42)
 private let workNS = NSColor(red: 0.36, green: 0.55, blue: 0.94, alpha: 1)
 private let side = Color(red: 0.56, green: 0.31, blue: 0.78)
+/// The dispersion along the icon's glass edges.
+private let prism: [Color] = [
+    Color(red: 0.45, green: 0.92, blue: 1.0), Color(red: 0.36, green: 0.52, blue: 1.0), Color(red: 0.64, green: 0.4, blue: 1.0),
+    Color(red: 1.0, green: 0.38, blue: 0.76), Color(red: 1.0, green: 0.62, blue: 0.32), Color(red: 1.0, green: 0.9, blue: 0.5),
+    Color(red: 0.45, green: 0.92, blue: 1.0),
+]
+
+/// Clear glass: frosted fill, white rim highlight, rainbow edge and a soft rainbow glow.
+private struct Glass: ViewModifier {
+    var radius: CGFloat = 24
+    var glow: Double = 0.35
+    func body(content: Content) -> some View {
+        let shape = RoundedRectangle(cornerRadius: radius, style: .continuous)
+        content
+            .background(shape.fill(LinearGradient(colors: [.white.opacity(0.11), .white.opacity(0.03)], startPoint: .top, endPoint: .bottom)))
+            .background(shape.stroke(AngularGradient(colors: prism, center: .center), lineWidth: 6).blur(radius: 18).opacity(glow))
+            .overlay(shape.stroke(AngularGradient(colors: prism, center: .center, angle: .degrees(200)), lineWidth: 1.6).opacity(0.85))
+            .overlay(shape.inset(by: 1.5).stroke(LinearGradient(colors: [.white.opacity(0.45), .clear, .clear], startPoint: .top, endPoint: .bottom), lineWidth: 1))
+    }
+}
+
+private extension View {
+    func glass(radius: CGFloat = 24, glow: Double = 0.35) -> some View { modifier(Glass(radius: radius, glow: glow)) }
+}
+
+/// Blurred rainbow beams at the panes' angle.
+private struct PrismBeams: View {
+    var body: some View {
+        ZStack {
+            beam(width: 1700, height: 150, x: 1040, y: 420, opacity: 0.38, blur: 70)
+            beam(width: 1500, height: 34, x: 1060, y: 440, opacity: 0.55, blur: 18)
+            beam(width: 1300, height: 70, x: 1330, y: 520, opacity: 0.22, blur: 40)
+            beam(width: 900, height: 50, x: 300, y: 820, opacity: 0.14, blur: 40)
+        }
+    }
+    private func beam(width: CGFloat, height: CGFloat, x: CGFloat, y: CGFloat, opacity: Double, blur: CGFloat) -> some View {
+        Capsule()
+            .fill(LinearGradient(colors: prism, startPoint: .leading, endPoint: .trailing))
+            .frame(width: width, height: height)
+            .rotationEffect(.degrees(-58))
+            .position(x: x, y: y)
+            .blur(radius: blur)
+            .opacity(opacity)
+    }
+}
 private let sideNS = NSColor(red: 0.56, green: 0.31, blue: 0.78, alpha: 1)
 private let personalNS = NSColor(red: 0.19, green: 0.64, blue: 0.42, alpha: 1)
 
@@ -21,25 +66,27 @@ struct LaunchImage: View {
 
     var body: some View {
         ZStack {
-            Color(red: 0.035, green: 0.035, blue: 0.05)
-            // Two universes as two glows.
-            RadialGradient(colors: [work.opacity(0.45), .clear], center: UnitPoint(x: 0.72, y: 0.18), startRadius: 0, endRadius: 520)
-            RadialGradient(colors: [personal.opacity(0.38), .clear], center: UnitPoint(x: 0.9, y: 0.95), startRadius: 0, endRadius: 520)
-            RadialGradient(colors: [side.opacity(0.28), .clear], center: UnitPoint(x: 0.98, y: 0.62), startRadius: 0, endRadius: 420)
-            RadialGradient(colors: [Color.white.opacity(0.06), .clear], center: UnitPoint(x: 0.18, y: 0.35), startRadius: 0, endRadius: 420)
-            DotGrid().opacity(0.5)
+            Color.black
+            PrismBeams()
+            RadialGradient(colors: [Color.white.opacity(0.05), .clear], center: UnitPoint(x: 0.75, y: 0.5), startRadius: 0, endRadius: 600)
+            DotGrid().opacity(0.35)
 
             HStack(alignment: .center, spacing: 56) {
                 // Left: brand
                 VStack(alignment: .leading, spacing: 26) {
                     Image(nsImage: appIcon).resizable().frame(width: 132, height: 132)
                         .clipShape(RoundedRectangle(cornerRadius: 30, style: .continuous))
-                        .overlay(RoundedRectangle(cornerRadius: 30, style: .continuous).stroke(.white.opacity(0.12)))
-                        .shadow(color: work.opacity(0.6), radius: 40)
+                        .overlay(RoundedRectangle(cornerRadius: 30, style: .continuous)
+                            .stroke(AngularGradient(colors: prism, center: .center), lineWidth: 1.2).opacity(0.7))
+                        .background(RoundedRectangle(cornerRadius: 30, style: .continuous)
+                            .stroke(AngularGradient(colors: prism, center: .center), lineWidth: 10).blur(radius: 26).opacity(0.55))
                     Text("Multiverse")
                         .font(.system(size: 92, weight: .bold, design: .default))
                         .tracking(-2.5)
-                        .foregroundStyle(LinearGradient(colors: [.white, .white.opacity(0.72)], startPoint: .top, endPoint: .bottom))
+                        .foregroundStyle(LinearGradient(
+                            colors: [.white, .white, Color(red: 0.8, green: 0.9, blue: 1), Color(red: 1, green: 0.82, blue: 0.95),
+                                     Color(red: 1, green: 0.93, blue: 0.82), .white],
+                            startPoint: .topLeading, endPoint: .bottomTrailing))
                     Text("Run every app in more than one universe:\nwork, personal, side projects. Each copy has\nits own logins, and links open in the right browser.")
                         .font(.system(size: 27, weight: .regular))
                         .foregroundStyle(.white.opacity(0.62))
@@ -72,8 +119,8 @@ private struct Pill: View {
             .font(.system(size: 17, weight: .medium))
             .foregroundStyle(.white.opacity(0.8))
             .padding(.horizontal, 14).padding(.vertical, 8)
-            .background(Capsule().fill(.white.opacity(0.07)))
-            .overlay(Capsule().stroke(.white.opacity(0.12)))
+            .background(Capsule().fill(.white.opacity(0.06)))
+            .overlay(Capsule().stroke(AngularGradient(colors: prism, center: .center), lineWidth: 1).opacity(0.45))
     }
 }
 
@@ -93,6 +140,7 @@ private struct UniverseDocks: View {
             ForEach(Array(shelves.enumerated()), id: \.offset) { i, shelf in
                 VStack(alignment: .leading, spacing: 12) {
                     HStack(spacing: 10) {
+                        Circle().fill(shelf.color).frame(width: 9, height: 9).shadow(color: shelf.color, radius: 6)
                         Text(shelf.title).font(.system(size: 20, weight: .bold)).foregroundStyle(.white)
                         Text(shelf.note).font(.system(size: 14)).foregroundStyle(.white.opacity(0.5))
                     }
@@ -105,9 +153,7 @@ private struct UniverseDocks: View {
                             .resizable().frame(width: 78, height: 78)
                     }
                     .padding(.horizontal, 18).padding(.vertical, 14)
-                    .background(RoundedRectangle(cornerRadius: 26, style: .continuous).fill(.white.opacity(0.07)))
-                    .overlay(RoundedRectangle(cornerRadius: 26, style: .continuous).stroke(shelf.color.opacity(0.65), lineWidth: 1.5))
-                    .shadow(color: shelf.color.opacity(0.45), radius: 30)
+                    .glass(radius: 26, glow: 0.4)
                 }
                 .offset(x: CGFloat(i) * 46)
             }
