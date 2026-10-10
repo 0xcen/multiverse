@@ -154,6 +154,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             return
         }
         let pid = event.attributeDescriptor(forKeyword: keySenderPIDAttr)?.int32Value ?? 0
+        // macOS brings the default browser (us) forward for each link; don't let Settings flash up.
+        MainActor.assumeIsolated { closeSettings() }
         Task { @MainActor in Store.shared.route([url], senderPID: pid) }
     }
 
@@ -226,6 +228,12 @@ struct MenuContent: View {
 /// Settings lives in a plain NSWindow we own: SwiftUI's Settings scene can't be opened reliably
 /// from a menu bar app (or from AppKit callbacks like reopen).
 @MainActor private var settingsWindow: NSWindow?
+
+@MainActor func closeSettings() {
+    guard let w = settingsWindow, w.isVisible else { return }
+    w.orderOut(nil)
+    NSApp.hide(nil)
+}
 
 @MainActor func showSettings() {
     if settingsWindow == nil {

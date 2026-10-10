@@ -490,7 +490,7 @@ struct AddAppSheet: View {
     @Environment(\.dismiss) private var dismiss
     let universe: Universe
 
-    enum Step { case pick, how, copy }
+    enum Step { case pick, how, copy, ready }
     @State private var step = Step.pick
     @State private var search = ""
     @State private var apps: [InstalledApp] = []
@@ -512,6 +512,10 @@ struct AddAppSheet: View {
             case .pick: pick
             case .how: how
             case .copy: copy
+            case .ready:
+                if let built = store.config.apps.first(where: { $0.id == draftID }) {
+                    CopyReadyView(entry: built) { dismiss() }
+                }
             }
         }
         .padding(20)
@@ -610,11 +614,6 @@ struct AddAppSheet: View {
                   : "\(a.name) doesn't support separate profiles, so this copy shares its logins.",
                   systemImage: ownLogins ? "checkmark.circle" : "info.circle")
                 .font(.callout).foregroundStyle(ownLogins ? .green : .secondary)
-            if ownLogins {
-                Label("The first time it opens, macOS asks whether it may use “\(a.name) Safe Storage” from your keychain. Enter your Mac password and click Always Allow.",
-                      systemImage: "key")
-                    .font(.callout).foregroundStyle(.secondary)
-            }
             Label("After \(a.name) updates, Multiverse lets you update the copy with one click.", systemImage: "arrow.triangle.2.circlepath")
                 .font(.callout).foregroundStyle(.secondary)
             if let err = store.errors[draftID] { Text(err).font(.callout).foregroundStyle(.red) }
@@ -630,7 +629,10 @@ struct AddAppSheet: View {
                         var e = AppEntry(name: trimmed, kind: .clone, sourcePath: a.url.path, universeID: universe.id)
                         e.id = draftID
                         e.icon = icon
-                        store.build(e) { ok in if ok { dismiss() } }
+                        store.build(e) { ok in
+                            guard ok else { return }
+                            if Builder.supportsProfiles(a.url) { step = .ready } else { dismiss() }
+                        }
                     }
                     .keyboardShortcut(.defaultAction)
                     .buttonStyle(.borderedProminent)
@@ -708,6 +710,83 @@ struct IconChooser: View {
     }
 }
 
+/// Shown right after creating a copy that macOS will ask about: what the keychain prompt looks like
+/// and which button to press, then a button to open the copy so the prompt arrives in context.
+struct CopyReadyView: View {
+    let entry: AppEntry
+    let done: () -> Void
+
+    private var source: String { appName(entry.sourcePath) }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            HStack(spacing: 12) {
+                Image(nsImage: appIcon(entry.installedPath, size: 44))
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("\(entry.name) is ready").font(.title2.bold())
+                    Text("One thing to expect the first time it opens:").foregroundStyle(.secondary)
+                }
+            }
+            Text("macOS will ask whether \(entry.name) may use “\(source) Safe Storage” from your keychain. That's where \(source) keeps the key that encrypts saved passwords and cookies, and macOS checks with you because \(entry.name) is a new app. Enter your Mac password and click **Always Allow**.")
+                .fixedSize(horizontal: false, vertical: true)
+            KeychainPromptPreview(app: entry.name, item: "\(source) Safe Storage", icon: appIcon(entry.installedPath, size: 28))
+            Text("If you click Deny, \(entry.name) can't keep you signed in. You'll see this again after updating the copy.")
+                .font(.caption).foregroundStyle(.secondary)
+            Spacer()
+            HStack {
+                Spacer()
+                Button("Later") { done() }.keyboardShortcut(.cancelAction)
+                Button("Open \(entry.name)") {
+                    NSWorkspace.shared.openApplication(at: URL(fileURLWithPath: entry.installedPath),
+                                                       configuration: NSWorkspace.OpenConfiguration())
+                    done()
+                }
+                .keyboardShortcut(.defaultAction)
+                .buttonStyle(.borderedProminent)
+            }
+        }
+    }
+}
+
+/// A small drawing of the macOS keychain dialog with the button to press highlighted.
+struct KeychainPromptPreview: View {
+    let app: String
+    let item: String
+    let icon: NSImage
+
+    var body: some View {
+        HStack(alignment: .top, spacing: 12) {
+            ZStack(alignment: .bottomTrailing) {
+                Image(systemName: "lock.fill").font(.system(size: 30)).foregroundStyle(.yellow)
+                Image(nsImage: icon).resizable().frame(width: 18, height: 18).offset(x: 6, y: 4)
+            }
+            .frame(width: 40)
+            VStack(alignment: .leading, spacing: 8) {
+                Text("\(app) wants to use your confidential information stored in “\(item)” in your keychain.")
+                    .font(.callout.bold()).fixedSize(horizontal: false, vertical: true)
+                HStack(spacing: 6) {
+                    Text("Password:").font(.caption)
+                    RoundedRectangle(cornerRadius: 4).fill(.quaternary).frame(height: 18)
+                        .overlay(Text("••••••••").font(.caption).padding(.leading, 6), alignment: .leading)
+                }
+                HStack(spacing: 6) {
+                    Text("Always Allow").font(.caption.bold())
+                        .padding(.horizontal, 8).padding(.vertical, 4)
+                        .background(Capsule().fill(Color.accentColor.opacity(0.18)))
+                        .overlay(Capsule().stroke(Color.accentColor, lineWidth: 2))
+                    Spacer()
+                    Text("Deny").font(.caption).padding(.horizontal, 8).padding(.vertical, 4)
+                        .background(Capsule().fill(.quaternary))
+                    Text("Allow").font(.caption).padding(.horizontal, 8).padding(.vertical, 4)
+                        .background(Capsule().fill(.quaternary))
+                }
+            }
+        }
+        .padding(14)
+        .background(RoundedRectangle(cornerRadius: 12).fill(.background.secondary))
+    }
+}
+
 struct ColorSwatches: View {
     @Binding var color: String?
     var body: some View {
@@ -732,6 +811,7 @@ struct SeparateBrowserSheet: View {
     @State private var name: String
     @State private var icon = IconStyle.tint
     @State private var draftID = UUID()
+    @State private var ready = false
 
     init(browser: URL, universe: Universe, suggestedName: String) {
         self.browser = browser
@@ -742,6 +822,16 @@ struct SeparateBrowserSheet: View {
     private var universe: Universe? { store.config.universe(universeID) }
 
     var body: some View {
+        if ready, let built = store.config.apps.first(where: { $0.id == draftID }) {
+            CopyReadyView(entry: built) { dismiss() }
+                .padding(20)
+                .frame(width: 520, height: 500)
+        } else {
+            form
+        }
+    }
+
+    @ViewBuilder private var form: some View {
         let trimmed = name.trimmingCharacters(in: .whitespaces)
         let clash = FileManager.default.fileExists(atPath: "/Applications/\(trimmed).app")
             || store.config.apps.contains { $0.name == trimmed }
@@ -767,9 +857,6 @@ struct SeparateBrowserSheet: View {
                 .font(.callout).foregroundStyle(.green)
             Label("A separate app with its own Dock icon. Find it in Applications, Spotlight and the Multiverse menu.",
                   systemImage: "macwindow.on.rectangle")
-                .font(.callout).foregroundStyle(.secondary)
-            Label("The first time it opens, macOS asks whether it may use “\(browserName) Safe Storage” from your keychain. Enter your Mac password and click Always Allow.",
-                  systemImage: "key")
                 .font(.callout).foregroundStyle(.secondary)
             if let err = store.errors[draftID] { Text(err).font(.callout).foregroundStyle(.red) }
             Spacer()
@@ -799,7 +886,7 @@ struct SeparateBrowserSheet: View {
             if let i = store.config.universes.firstIndex(where: { $0.id == universeID }) {
                 store.config.universes[i].browser = BrowserTarget(appPath: appPath)
             }
-            dismiss()
+            ready = true
         }
     }
 }
