@@ -48,7 +48,9 @@ struct SettingsView: View {
                     ContentUnavailable()
                 }
             }
+            .background(Brand.background)
         }
+        .tint(Brand.ink)
         .onAppear {
             store.refreshRouting()
             if let id = store.showUniverse { selection = id; store.showUniverse = nil }
@@ -76,14 +78,14 @@ struct RoutingBanner: View {
     @EnvironmentObject var store: Store
     var body: some View {
         HStack {
-            Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(.yellow)
+            Image(systemName: "exclamationmark.circle.fill").foregroundStyle(Brand.ink)
             Text("Links aren't being routed yet. Finish setup to let Multiverse pass each link to the right browser.")
                 .font(.callout)
             Spacer()
-            Button("Finish setup") { showOnboarding() }
+            Button("Finish setup") { showOnboarding() }.buttonStyle(.brand)
         }
         .padding(10)
-        .background(.yellow.opacity(0.12))
+        .background(Brand.olive.opacity(0.18))
     }
 }
 
@@ -145,7 +147,7 @@ struct UniversePage: View {
                             if app.id != apps.last?.id { Divider() }
                         }
                     }
-                    .background(RoundedRectangle(cornerRadius: 8).fill(.background.secondary))
+                    .brandCard(radius: 8)
                 }
             }
             .padding(24)
@@ -193,7 +195,7 @@ struct UniverseTitle: View {
     var body: some View {
         if editing {
             TextField("Name", text: $draft)
-                .font(.largeTitle.bold())
+                .font(Brand.heading(34)).tracking(-1)
                 .textFieldStyle(.plain)
                 .focused($focused)
                 .onAppear {
@@ -205,7 +207,7 @@ struct UniverseTitle: View {
                 .onExitCommand { editing = false }
         } else {
             Text(name.isEmpty ? "Untitled" : name)
-                .font(.largeTitle.bold())
+                .font(Brand.heading(34)).tracking(-1)
                 .foregroundStyle(name.isEmpty ? .secondary : .primary)
                 .onTapGesture { draft = name; editing = true }
                 .help("Click to rename")
@@ -389,11 +391,18 @@ struct BrowserPicker: View {
                 }
                 Button("Another profile folder…") { chooseProfileFolder() }
             } label: {
-                HStack {
+                HStack(spacing: 8) {
                     Image(nsImage: appIcon(target.appPath, size: 18))
                     Text(options.first { normalized($0.target) == normalized(target) }?.label ?? label(for: target))
+                        .foregroundStyle(Brand.ink)
+                    Image(systemName: "chevron.up.chevron.down").font(.system(size: 10, weight: .semibold)).foregroundStyle(Brand.muted)
                 }
+                .padding(.horizontal, 12).padding(.vertical, 6)
+                .background(Capsule().fill(Brand.panel))
+                .overlay(Capsule().stroke(Brand.border))
             }
+            .menuStyle(.borderlessButton)
+            .menuIndicator(.hidden)
             .fixedSize()
         }
         .sheet(item: $newBrowser) { b in
@@ -561,7 +570,7 @@ struct AddAppSheet: View {
     @State private var apps: [InstalledApp] = []
     @State private var app: InstalledApp?
     @State private var name = ""
-    @State private var icon = IconStyle.tint
+    @State private var icon = IconStyle.ivory
     @State private var draftID = UUID()
 
     init(universe: Universe, app: InstalledApp? = nil, step: Step = .pick) {
@@ -585,6 +594,8 @@ struct AddAppSheet: View {
         }
         .padding(20)
         .frame(width: 520, height: 510)
+        .background(Brand.background)
+        .tint(Brand.ink)
         .onAppear {
             let config = store.config
             Task.detached {
@@ -597,7 +608,7 @@ struct AddAppSheet: View {
     // Step 1
     private var pick: some View {
         VStack(alignment: .leading, spacing: 12) {
-            Text("Add an app to \(universe.emoji) \(universe.name)").font(.title2.bold())
+            Text("Add an app to \(universe.emoji) \(universe.name)").font(Brand.heading(24)).tracking(-0.6)
             TextField("Search apps", text: $search).textFieldStyle(.roundedBorder)
             List(apps.filter { search.isEmpty || $0.name.localizedCaseInsensitiveContains(search) }) { a in
                 Button {
@@ -627,7 +638,7 @@ struct AddAppSheet: View {
         return VStack(alignment: .leading, spacing: 14) {
             HStack {
                 Image(nsImage: appIcon(a.url.path, size: 40))
-                Text("How should \(a.name) work in \(universe.name)?").font(.title2.bold())
+                Text("How should \(a.name) work in \(universe.name)?").font(Brand.heading(24)).tracking(-0.6)
             }
             ChoiceCard(
                 title: "Use \(a.name) as it is",
@@ -673,7 +684,7 @@ struct AddAppSheet: View {
             || store.config.apps.contains { $0.name == trimmed }
         let ownLogins = Builder.supportsProfiles(a.url)
         return VStack(alignment: .leading, spacing: 14) {
-            Text(Builder.copyBlocker(a.url) == nil ? "Your copy of \(a.name)" : "Your \(a.name) profile").font(.title2.bold())
+            Text(Builder.copyBlocker(a.url) == nil ? "Your copy of \(a.name)" : "Your \(a.name) profile").font(Brand.heading(24)).tracking(-0.6)
             VStack(alignment: .leading, spacing: 4) {
                 Text("Name").font(.headline)
                 TextField("Name", text: $name).textFieldStyle(.roundedBorder)
@@ -689,7 +700,7 @@ struct AddAppSheet: View {
                   ? "Gets its own logins and data, separate from \(a.name)."
                   : "\(a.name) doesn't support separate profiles, so this copy shares its logins.",
                   systemImage: ownLogins ? "checkmark.circle" : "info.circle")
-                .font(.callout).foregroundStyle(ownLogins ? .green : .secondary)
+                .font(.callout).foregroundStyle(ownLogins ? Brand.ink : Brand.muted)
             Label("After \(a.name) updates, Multiverse lets you update the copy with one click.", systemImage: "arrow.triangle.2.circlepath")
                 .font(.callout).foregroundStyle(.secondary)
             if let err = store.errors[draftID] { Text(err).font(.callout).foregroundStyle(.red) }
@@ -713,7 +724,7 @@ struct AddAppSheet: View {
                         }
                     }
                     .keyboardShortcut(.defaultAction)
-                    .buttonStyle(.borderedProminent)
+                    .buttonStyle(.brand)
                     .disabled(trimmed.isEmpty || clash || AppEntry.nameProblem(trimmed) != nil)
                 }
             }
@@ -734,6 +745,16 @@ struct AddAppSheet: View {
 /// Three icon options for a new app, rendered from the real icon: universe colour, inverted, same.
 struct IconChooser: View {
     @EnvironmentObject var store: Store
+
+    private func label(_ style: IconStyle) -> String {
+        switch style {
+        case .ivory: "Ivory"
+        case .graphite: "Graphite"
+        case .tint: "\(universe.name) colour"
+        case .invert: "Inverted"
+        case .original: "Same"
+        }
+    }
     let app: URL
     let universeID: UUID
     @Binding var selection: IconStyle
@@ -747,7 +768,7 @@ struct IconChooser: View {
         VStack(alignment: .leading, spacing: 6) {
             Text("Icon").font(.headline)
             HStack(spacing: 16) {
-                ForEach([IconStyle.tint, .invert, .original]) { style in
+                ForEach([IconStyle.ivory, .graphite, .tint, .original]) { style in
                     VStack {
                         Group {
                             if let img = previews[style] { Image(nsImage: img).resizable() } else { ProgressView() }
@@ -755,8 +776,8 @@ struct IconChooser: View {
                         .frame(width: 72, height: 72)
                         .padding(6)
                         .background(RoundedRectangle(cornerRadius: 12)
-                            .stroke(selection == style ? Color.accentColor : .clear, lineWidth: 2))
-                        Text(style == .tint ? "\(universe.name) colour" : style == .invert ? "Inverted" : "Same")
+                            .stroke(selection == style ? Brand.ink : .clear, lineWidth: 2))
+                        Text(label(style))
                             .font(.caption)
                     }
                     .onTapGesture { selection = style }
@@ -801,7 +822,7 @@ struct CopyReadyView: View {
             HStack(spacing: 12) {
                 Image(nsImage: appIcon(entry.installedPath, size: 44))
                 VStack(alignment: .leading, spacing: 2) {
-                    Text("\(entry.name) is ready").font(.title2.bold())
+                    Text("\(entry.name) is ready").font(Brand.heading(24)).tracking(-0.6)
                     Text("One thing to expect the first time it opens:").foregroundStyle(.secondary)
                 }
             }
@@ -820,7 +841,7 @@ struct CopyReadyView: View {
                     done()
                 }
                 .keyboardShortcut(.defaultAction)
-                .buttonStyle(.borderedProminent)
+                .buttonStyle(.brand)
             }
         }
     }
@@ -850,8 +871,8 @@ struct KeychainPromptPreview: View {
                 HStack(spacing: 6) {
                     Text("Always Allow").font(.caption.bold())
                         .padding(.horizontal, 8).padding(.vertical, 4)
-                        .background(Capsule().fill(Color.accentColor.opacity(0.18)))
-                        .overlay(Capsule().stroke(Color.accentColor, lineWidth: 2))
+                        .background(Capsule().fill(Brand.ink.opacity(0.18)))
+                        .overlay(Capsule().stroke(Brand.ink, lineWidth: 2))
                     Spacer()
                     Text("Deny").font(.caption).padding(.horizontal, 8).padding(.vertical, 4)
                         .background(Capsule().fill(.quaternary))
@@ -861,7 +882,7 @@ struct KeychainPromptPreview: View {
             }
         }
         .padding(14)
-        .background(RoundedRectangle(cornerRadius: 12).fill(.background.secondary))
+        .brandCard(radius: 12)
     }
 }
 
@@ -887,7 +908,7 @@ struct SeparateBrowserSheet: View {
     let browser: URL
     let universeID: UUID
     @State private var name: String
-    @State private var icon = IconStyle.tint
+    @State private var icon = IconStyle.ivory
     @State private var draftID = UUID()
     @State private var ready = false
     private let blocker: String?
@@ -919,7 +940,7 @@ struct SeparateBrowserSheet: View {
         VStack(alignment: .leading, spacing: 14) {
             HStack {
                 Image(nsImage: appIcon(browser.path, size: 40))
-                Text("A separate \(browserName) for \(universe?.name ?? "")").font(.title2.bold())
+                Text("A separate \(browserName) for \(universe?.name ?? "")").font(Brand.heading(24)).tracking(-0.6)
             }
             VStack(alignment: .leading, spacing: 4) {
                 Text("Name").font(.headline)
@@ -934,7 +955,7 @@ struct SeparateBrowserSheet: View {
             IconChooser(app: browser, universeID: universeID, selection: $icon)
             Label("Its own logins, history and extensions, separate from your other \(browserName).",
                   systemImage: "checkmark.circle")
-                .font(.callout).foregroundStyle(.green)
+                .font(.callout).foregroundStyle(Brand.ink)
             if let blocker {
                 Label("\(blocker) Instead it opens \(browserName) with its own profile: find \(trimmed.isEmpty ? "it" : trimmed) in Applications, Spotlight and the Multiverse menu, but its windows share \(browserName)'s Dock icon.",
                       systemImage: "info.circle")
@@ -954,13 +975,15 @@ struct SeparateBrowserSheet: View {
                 } else {
                     Button("Create \(trimmed)") { create(trimmed) }
                         .keyboardShortcut(.defaultAction)
-                        .buttonStyle(.borderedProminent)
+                        .buttonStyle(.brand)
                         .disabled(trimmed.isEmpty || clash || AppEntry.nameProblem(trimmed) != nil)
                 }
             }
         }
         .padding(20)
         .frame(width: 520, height: 500)
+        .background(Brand.background)
+        .tint(Brand.ink)
     }
 
     private func create(_ name: String) {
@@ -997,7 +1020,7 @@ struct ChoiceCard: View {
                     Text(title).font(.headline)
                     if recommended && disabledReason == nil {
                         Text("Recommended").font(.caption2.bold()).padding(.horizontal, 6).padding(.vertical, 2)
-                            .background(Capsule().fill(Color.accentColor.opacity(0.15)))
+                            .background(Capsule().fill(Brand.ink.opacity(0.15)))
                     }
                     Spacer()
                     Image(systemName: "chevron.right").foregroundStyle(.secondary)
@@ -1006,7 +1029,7 @@ struct ChoiceCard: View {
             }
             .padding(14)
             .frame(maxWidth: .infinity, alignment: .leading)
-            .background(RoundedRectangle(cornerRadius: 10).fill(.background.secondary))
+            .brandCard(radius: 10)
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)

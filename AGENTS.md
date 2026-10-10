@@ -68,7 +68,7 @@ picks up changes within a second. Schema:
     { "id": "<UUID>", "name": "Slack", "kind": "original", "sourcePath": "/Applications/Slack.app",
       "universeID": "<Personal id>", "env": {}, "icon": "original" },
     { "id": "<UUID>", "name": "Work Slack", "kind": "clone", "sourcePath": "/Applications/Slack.app",
-      "universeID": "<Work id>", "env": {}, "icon": "tint" }
+      "universeID": "<Work id>", "env": {}, "icon": "ivory" }
   ]
 }
 ```
@@ -81,15 +81,16 @@ picks up changes within a second. Schema:
   - `launcher`: rarely needed. A small app that opens an existing Chromium profile folder
     (`dataDir`). Its windows share the original's Dock icon. Prefer `clone`.
 - `icon` (copies only):
-  - `tint`: recoloured in the universe's `color`. Recommended, so copies are easy to tell apart.
-  - `invert`: inverted colours.
-  - `original`: unchanged.
+  - `ivory`: an ivory tile with the app's symbol in graphite. The default, and easy to tell apart.
+  - `graphite`: a graphite tile with the symbol in ivory.
+  - `tint`: recoloured in the universe's `color`.
+  - `invert`: inverted colours. `original`: unchanged.
 - `browser.dataDir` (optional): a Chromium profile folder, e.g.
   `~/Library/Application Support/Chrome-Personal`.
 - Leave out `bundleID` and `dataDir` for clones. Multiverse fills them in when it builds.
 - Copy names must not match an app that already exists in `/Applications`. Multiverse refuses to
   replace apps it didn't make.
-- Generate ids with `uuidgen`. Colour palette: `#5B8DEF #E5484D #30A46C #F5A524 #8E4EC6 #12A594`.
+- Generate ids with `uuidgen`. Colour palette: `#7E95B0 #9DA67C #C2876A #CDB98A #8F7A9E #7FA394`.
 
 Then validate:
 

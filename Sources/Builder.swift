@@ -375,7 +375,83 @@ enum Icons {
         case .original: return icon
         case .invert: return invert(icon, size: size)
         case .tint: return self.tint(icon, with: tint ?? .systemBlue, size: size)
+        case .ivory: return carbonTile(glyph(of: icon, bright: brightLineApps.contains(Bundle(url: app)?.bundleIdentifier ?? ""), size: size), ivory: true, size: size)
+        case .graphite: return carbonTile(glyph(of: icon, bright: brightLineApps.contains(Bundle(url: app)?.bundleIdentifier ?? ""), size: size), ivory: false, size: size)
         }
+    }
+
+    /// Apps whose symbol is bright lines over a glow (Arc); their symbol is picked out by brightness.
+    static let brightLineApps: Set<String> = ["company.thebrowser.Browser"]
+
+    /// The app's symbol (Notion's N, Slack's hash…) as a white mask: the icon's background colour is
+    /// sampled just inside its edge, and whatever differs from it is the symbol.
+    static func glyph(of icon: NSImage, bright: Bool = false, size: Int = 1024) -> NSImage {
+        guard let rep = bitmap(icon, size: size), let data = rep.bitmapData else { return icon }
+        let w = rep.pixelsWide, h = rep.pixelsHigh
+        func px(_ x: Int, _ y: Int) -> (Float, Float, Float, Float) {
+            guard x >= 0, y >= 0, x < w, y < h else { return (0, 0, 0, 0) }
+            let p = data + (y * w + x) * 4, a = Float(p[3])
+            guard a > 0 else { return (0, 0, 0, 0) }
+            return (Float(p[0]) / a, Float(p[1]) / a, Float(p[2]) / a, a / 255)
+        }
+        var minX = w, minY = h, maxX = 0, maxY = 0
+        for y in 0..<h { for x in 0..<w where px(x, y).3 > 0.9 { minX = min(minX, x); maxX = max(maxX, x); minY = min(minY, y); maxY = max(maxY, y) } }
+        guard maxX > minX else { return icon }
+        let inset = Int(Double(maxX - minX) * 0.07)
+        var rs: [Float] = [], gs: [Float] = [], bs: [Float] = []
+        for t in stride(from: 0.2, through: 0.8, by: 0.02) {
+            let xs = minX + inset + Int(Double(maxX - minX - 2 * inset) * t)
+            let ys = minY + inset + Int(Double(maxY - minY - 2 * inset) * t)
+            for (x, y) in [(xs, minY + inset), (xs, maxY - inset), (minX + inset, ys), (maxX - inset, ys)] {
+                let c = px(x, y); if c.3 > 0.9 { rs.append(c.0); gs.append(c.1); bs.append(c.2) }
+            }
+        }
+        func median(_ v: [Float]) -> Float { v.isEmpty ? 1 : v.sorted()[v.count / 2] }
+        let bg = (median(rs), median(gs), median(bs))
+        let out = NSBitmapImageRep(bitmapDataPlanes: nil, pixelsWide: w, pixelsHigh: h, bitsPerSample: 8, samplesPerPixel: 4,
+                                   hasAlpha: true, isPlanar: false, colorSpaceName: .deviceRGB, bytesPerRow: w * 4, bitsPerPixel: 32)!
+        let o = out.bitmapData!
+        let edge = inset * 3 / 4
+        for y in 0..<h {
+            for x in 0..<w {
+                let c = px(x, y)
+                let d = sqrt((c.0 - bg.0) * (c.0 - bg.0) + (c.1 - bg.1) * (c.1 - bg.1) + (c.2 - bg.2) * (c.2 - bg.2))
+                let lum = 0.299 * c.0 + 0.587 * c.1 + 0.114 * c.2
+                let inside = px(x - edge, y).3 > 0.9 && px(x + edge, y).3 > 0.9 && px(x, y - edge).3 > 0.9 && px(x, y + edge).3 > 0.9
+                    && px(x - edge, y - edge).3 > 0.9 && px(x + edge, y + edge).3 > 0.9
+                    && px(x - edge, y + edge).3 > 0.9 && px(x + edge, y - edge).3 > 0.9
+                let strength = bright ? (lum - 0.72) / 0.12 : (d - 0.16) / 0.09
+                let v = UInt8(inside ? min(1, max(0, strength)) * c.3 * 255 : 0)
+                let q = o + (y * w + x) * 4
+                q[0] = v; q[1] = v; q[2] = v; q[3] = v
+            }
+        }
+        let image = NSImage(size: NSSize(width: size, height: size))
+        image.addRepresentation(out)
+        return image
+    }
+
+    /// A macOS-shaped Carbon tile with the symbol on it: ivory tile and graphite symbol, or the reverse.
+    static func carbonTile(_ glyph: NSImage, ivory: Bool, size: Int = 1024) -> NSImage {
+        let s = CGFloat(size)
+        let tile = NSColor(rgb: ivory ? Brand.ivoryHex : Brand.graphiteHex)
+        let mark = NSColor(rgb: ivory ? 0x161716 : Brand.ivoryHex)
+        let image = NSImage(size: NSSize(width: s, height: s))
+        image.lockFocus()
+        // Apple's icon grid: an 824-pt rounded square centred in 1024.
+        let r = NSRect(x: s * 100 / 1024, y: s * 100 / 1024, width: s * 824 / 1024, height: s * 824 / 1024)
+        tile.setFill()
+        NSBezierPath(roundedRect: r, xRadius: s * 185 / 1024, yRadius: s * 185 / 1024).fill()
+        // Tint the white mask by drawing it through a solid colour.
+        let tinted = NSImage(size: glyph.size)
+        tinted.lockFocus()
+        glyph.draw(in: NSRect(origin: .zero, size: glyph.size))
+        mark.set()
+        NSRect(origin: .zero, size: glyph.size).fill(using: .sourceIn)
+        tinted.unlockFocus()
+        tinted.draw(in: NSRect(x: 0, y: 0, width: s, height: s))
+        image.unlockFocus()
+        return image
     }
 
     /// Recolours the icon in one hue: shadows go dark, mid-tones take the colour, highlights go pale.

@@ -111,7 +111,7 @@ struct OnboardingView: View {
             HStack {
                 HStack(spacing: 6) {
                     ForEach(steps, id: \.self) { s in
-                        Circle().fill(s == step ? Color.accentColor : Color.secondary.opacity(0.3)).frame(width: 7, height: 7)
+                        Circle().fill(s == step ? Brand.ink : Color.secondary.opacity(0.3)).frame(width: 7, height: 7)
                     }
                 }
                 Spacer()
@@ -119,7 +119,7 @@ struct OnboardingView: View {
                 if step != .permissions {
                     Button(step == .welcome ? "Get started" : "Continue") { advance() }
                         .keyboardShortcut(.defaultAction)
-                        .buttonStyle(.borderedProminent)
+                        .buttonStyle(.brand)
                         .disabled(!canContinue)
                 } else {
                     Button(store.config.universes.count > 1 ? "Add apps" : "Done") {
@@ -127,7 +127,7 @@ struct OnboardingView: View {
                         finish(store.config.universes.first { $0.id != store.config.defaultUniverseID }?.id)
                     }
                     .keyboardShortcut(.defaultAction)
-                    .buttonStyle(.borderedProminent)
+                    .buttonStyle(.brand)
                 }
             }
         }
@@ -135,6 +135,8 @@ struct OnboardingView: View {
         .padding(.top, 36)
         .padding(.bottom, 22)
         .frame(width: 640, height: 600)
+        .background(Brand.background)
+        .tint(Brand.ink)
     }
 
     private var canContinue: Bool {
@@ -164,7 +166,10 @@ private struct WelcomeStep: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 20) {
             Image(nsImage: NSApp.applicationIconImage).resizable().frame(width: 72, height: 72)
-            Text("Keep work and personal apart").font(.largeTitle.bold())
+            VStack(alignment: .leading, spacing: -6) {
+                BrandTitle("Same apps.", size: 52)
+                BrandTitle("Different universes.", size: 52)
+            }
             VStack(alignment: .leading, spacing: 16) {
                 Point(symbol: "circle.hexagongrid", title: "Universes",
                       text: "Group your apps into universes, like 💼 Work and 🏠 Personal.")
@@ -184,7 +189,7 @@ private struct Point: View {
     let symbol: String, title: String, text: String
     var body: some View {
         HStack(alignment: .top, spacing: 12) {
-            Image(systemName: symbol).font(.title2).foregroundStyle(Color.accentColor).frame(width: 30)
+            Image(systemName: symbol).font(.title2).foregroundStyle(Brand.ink).frame(width: 30)
             VStack(alignment: .leading, spacing: 2) {
                 Text(title).font(.headline)
                 Text(text).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
@@ -354,7 +359,7 @@ private struct Point: View {
         }
         let dataDir = asProfile ? Builder.defaultDataDir(for: name) : nil
         let entry = AppEntry(name: name, kind: asProfile ? .launcher : .clone, sourcePath: app.path,
-                             universeID: universeID, dataDir: dataDir, icon: .tint)
+                             universeID: universeID, dataDir: dataDir, icon: .ivory)
         let tint = store.config.universe(universeID).flatMap { NSColor(hex: $0.color ?? "") }
         let built = try await _Concurrency.Task.detached { try Builder.build(entry, tint: tint) }.value
         store.config.apps.append(built)
@@ -390,7 +395,7 @@ private struct UniversesStep: View {
     private var editor: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 14) {
-                Text("Your universes").font(.largeTitle.bold())
+                Text("Your universes").font(Brand.heading(34)).tracking(-1)
                 Text("A universe is one side of your life, with its own browser.")
                     .foregroundStyle(.secondary)
 
@@ -422,7 +427,7 @@ private struct UniversesStep: View {
 
     private var existing: some View {
         VStack(alignment: .leading, spacing: 16) {
-            Text("Your universes").font(.largeTitle.bold())
+            Text("Your universes").font(Brand.heading(34)).tracking(-1)
             Text("Check the browser each universe's links open in. Rename, recolour or add universes in Settings.")
                 .foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
             VStack(spacing: 0) {
@@ -440,7 +445,7 @@ private struct UniversesStep: View {
                     if u.id != store.config.universes.last?.id { Divider() }
                 }
             }
-            .background(RoundedRectangle(cornerRadius: 10).fill(.background.secondary))
+            .brandCard(radius: 10)
         }
     }
 }
@@ -460,7 +465,7 @@ private struct DraftCard: View {
                 EmojiButton(emoji: $draft.emoji)
                 TextField(isMain ? "Name, e.g. Work" : "Name, e.g. Personal", text: $draft.name)
                     .textFieldStyle(.plain)
-                    .font(.title2.bold())
+                    .font(Brand.heading(24)).tracking(-0.6)
                     .focused($nameFocused)
                     .onAppear { if draft.name.isEmpty || isMain { DispatchQueue.main.async { nameFocused = true } } }
                 Spacer()
@@ -514,7 +519,7 @@ private struct DraftCard: View {
             }
         }
         .padding(14)
-        .background(RoundedRectangle(cornerRadius: 12).fill(.background.secondary))
+        .brandCard(radius: 12)
         .overlay(RoundedRectangle(cornerRadius: 12).stroke(Color(nsColor: NSColor(hex: draft.color) ?? .gray).opacity(0.5), lineWidth: 1))
     }
 }
@@ -526,7 +531,7 @@ private struct BuildStep: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
-            Text(setup.building ? "Setting up…" : (setup.tasks.isEmpty ? "Nothing to build" : "All set")).font(.largeTitle.bold())
+            Text(setup.building ? "Setting up…" : (setup.tasks.isEmpty ? "Nothing to build" : "All set")).font(Brand.heading(34)).tracking(-1)
             if setup.tasks.isEmpty {
                 Text("Nothing to build.").foregroundStyle(.secondary)
             } else {
@@ -540,7 +545,7 @@ private struct BuildStep: View {
                                 switch t.state {
                                 case .waiting: Image(systemName: "circle").foregroundStyle(.tertiary)
                                 case .working: ProgressView().controlSize(.small)
-                                case .done: Image(systemName: "checkmark.circle.fill").foregroundStyle(.green)
+                                case .done: Image(systemName: "checkmark.circle.fill").foregroundStyle(Brand.olive)
                                 case .failed: Image(systemName: "exclamationmark.circle.fill").foregroundStyle(.red)
                                 }
                             }
@@ -552,7 +557,7 @@ private struct BuildStep: View {
                             if t.id != setup.tasks.last?.id { Divider() }
                         }
                     }
-                    .background(RoundedRectangle(cornerRadius: 10).fill(.background.secondary))
+                    .brandCard(radius: 10)
                 }
                 .frame(maxHeight: 250)
                 if let example = setup.tasks.first(where: { $0.copy != nil }), let copy = example.copy {
@@ -580,7 +585,7 @@ private struct PermissionsStep: View {
         let targets = Automation.targets(in: store.config)
         ScrollView {
             VStack(alignment: .leading, spacing: 14) {
-                Text("Permissions").font(.largeTitle.bold())
+                Text("Permissions").font(Brand.heading(34)).tracking(-1)
                 Text("Multiverse only asks for what it uses. Each of these is a one-time macOS prompt.")
                     .foregroundStyle(.secondary)
 
@@ -627,7 +632,7 @@ private struct PermissionsStep: View {
                     }
                 }
                 .padding(14)
-                .background(RoundedRectangle(cornerRadius: 10).fill(.background.secondary))
+                .brandCard(radius: 10)
             }
             .padding(.bottom, 16)
         }
@@ -706,8 +711,8 @@ private struct PromptSketch: View {
                         Text(b).font(.caption2.weight(b == highlight ? .bold : .regular))
                             .lineLimit(1)
                             .padding(.horizontal, 7).padding(.vertical, 3)
-                            .background(Capsule().fill(b == highlight ? Color.accentColor.opacity(0.2) : Color.secondary.opacity(0.15)))
-                            .overlay(Capsule().stroke(b == highlight ? Color.accentColor : .clear, lineWidth: 2))
+                            .background(Capsule().fill(b == highlight ? Brand.ink.opacity(0.2) : Color.secondary.opacity(0.15)))
+                            .overlay(Capsule().stroke(b == highlight ? Brand.ink : .clear, lineWidth: 2))
                     }
                 }
             }
@@ -732,7 +737,7 @@ private struct PermissionRow: View {
 
     var body: some View {
         HStack(alignment: .top, spacing: 12) {
-            Image(systemName: symbol).font(.title3).foregroundStyle(Color.accentColor).frame(width: 28)
+            Image(systemName: symbol).font(.title3).foregroundStyle(Brand.ink).frame(width: 28)
             VStack(alignment: .leading, spacing: 3) {
                 HStack {
                     Text(title).font(.headline)
@@ -748,12 +753,12 @@ private struct PermissionRow: View {
             }
         }
         .padding(12)
-        .background(RoundedRectangle(cornerRadius: 10).fill(.background.secondary))
+        .brandCard(radius: 10)
     }
 
     @ViewBuilder private var pill: some View {
         switch status {
-        case .done: Label("Done", systemImage: "checkmark.circle.fill").font(.caption.bold()).foregroundStyle(.green)
+        case .done: Label("Done", systemImage: "checkmark.circle.fill").font(.caption.bold()).foregroundStyle(Brand.olive)
         case .needed: Text("Needed").font(.caption.bold()).foregroundStyle(.orange)
         case .denied: Text("Turned off").font(.caption.bold()).foregroundStyle(.red)
         case .optional: Text("Optional").font(.caption.bold()).foregroundStyle(.secondary)

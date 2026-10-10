@@ -21,68 +21,18 @@ enum Carbon {
         NSImage(contentsOfFile: "tools/assets/icon-1024.png") ?? NSImage(contentsOfFile: "Resources/AppIcon.icns")!
     }
 
-    /// The symbol from a real app icon (Notion's N, Slack's hash, Claude's spark…) as a white mask:
-    /// the icon's background colour is sampled around its inner edge and everything that differs from
-    /// it is the symbol. Tint it with `.foregroundStyle` via `Glyph`.
+    /// The symbol from a real app icon, extracted by Multiverse's own code (Icons.glyph).
     static func glyph(_ app: String, size: Int = 768) -> NSImage {
         let key = "\(app)|\(size)" as NSString
         if let cached = cache.object(forKey: key) { return cached }
-        let source = NSWorkspace.shared.icon(forFile: "/Applications/\(app).app")
-        guard let rep = Icons.bitmap(source, size: size), let data = rep.bitmapData else { return source }
-        let w = rep.pixelsWide, h = rep.pixelsHigh
-        func px(_ x: Int, _ y: Int) -> (Float, Float, Float, Float) {
-            let p = data + (y * w + x) * 4, a = Float(p[3])
-            guard a > 0 else { return (0, 0, 0, 0) }
-            return (Float(p[0]) / a, Float(p[1]) / a, Float(p[2]) / a, a / 255)
-        }
-        // Bounding box of the opaque icon shape.
-        var minX = w, minY = h, maxX = 0, maxY = 0
-        for y in 0..<h { for x in 0..<w where px(x, y).3 > 0.9 { minX = min(minX, x); maxX = max(maxX, x); minY = min(minY, y); maxY = max(maxY, y) } }
-        guard maxX > minX else { return source }
-        // Background = median colour on a ring just inside the shape.
-        let inset = Int(Double(maxX - minX) * 0.07)
-        var rs: [Float] = [], gs: [Float] = [], bs: [Float] = []
-        for t in stride(from: 0.2, through: 0.8, by: 0.02) {
-            let xs = minX + inset + Int(Double(maxX - minX - 2 * inset) * t)
-            let ys = minY + inset + Int(Double(maxY - minY - 2 * inset) * t)
-            for (x, y) in [(xs, minY + inset), (xs, maxY - inset), (minX + inset, ys), (maxX - inset, ys)] {
-                let c = px(x, y); if c.3 > 0.9 { rs.append(c.0); gs.append(c.1); bs.append(c.2) }
-            }
-        }
-        func median(_ v: [Float]) -> Float { v.isEmpty ? 1 : v.sorted()[v.count / 2] }
-        let bg = (median(rs), median(gs), median(bs))
-        // Mask: distance from the background colour, inside the shape only.
-        let out = NSBitmapImageRep(bitmapDataPlanes: nil, pixelsWide: w, pixelsHigh: h, bitsPerSample: 8, samplesPerPixel: 4,
-                                   hasAlpha: true, isPlanar: false, colorSpaceName: .deviceRGB, bytesPerRow: w * 4, bitsPerPixel: 32)!
-        let o = out.bitmapData!
-        for y in 0..<h {
-            for x in 0..<w {
-                let c = px(x, y)
-                let d = sqrt((c.0 - bg.0) * (c.0 - bg.0) + (c.1 - bg.1) * (c.1 - bg.1) + (c.2 - bg.2) * (c.2 - bg.2))
-                // Ignore the icon's own rim: keep only pixels well inside its (rounded) shape.
-                let edge = inset * 3 / 4
-                let inside = x >= edge && y >= edge && x < w - edge && y < h - edge
-                    && px(x - edge, y).3 > 0.9 && px(x + edge, y).3 > 0.9 && px(x, y - edge).3 > 0.9 && px(x, y + edge).3 > 0.9
-                    && px(x - edge, y - edge).3 > 0.9 && px(x + edge, y + edge).3 > 0.9
-                    && px(x - edge, y + edge).3 > 0.9 && px(x + edge, y - edge).3 > 0.9
-                // Icons drawn as bright lines on a glowing background (Arc) read better by brightness.
-                let lum = 0.299 * c.0 + 0.587 * c.1 + 0.114 * c.2
-                let strength = brightLines.contains(app) ? (lum - 0.72) / 0.12 : (d - 0.16) / 0.09  // crisp edges
-                let a = inside ? min(1, max(0, strength)) * c.3 : 0
-                let q = o + (y * w + x) * 4
-                let v = UInt8(a * 255)
-                q[0] = v; q[1] = v; q[2] = v; q[3] = v  // premultiplied white
-            }
-        }
-        let image = NSImage(size: NSSize(width: size, height: size))
-        image.addRepresentation(out)
+        let icon = NSWorkspace.shared.icon(forFile: "/Applications/\(app).app")
+        let image = Icons.glyph(of: icon, bright: app == "Arc", size: size)
         cache.setObject(image, forKey: key)
         return image
     }
 
     private static let cache = NSCache<NSString, NSImage>()
-    /// Apps whose symbol is bright lines over a glow; extracted by brightness.
-    private static let brightLines: Set<String> = ["Arc"]
+
 }
 
 extension Color {

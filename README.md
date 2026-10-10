@@ -2,7 +2,7 @@
 
 # Multiverse
 
-**[Watch the 32-second launch film](docs/multiverse-launch.mp4)**
+**[Watch the launch film](docs/multiverse-launch.mp4)**
 
 Keep work and personal apart on one Mac, even inside the same app.
 
@@ -10,8 +10,9 @@ Multiverse is a small menu bar app. You make **universes** (say 💼 Work and �
 in them, and:
 
 - **Copies of the same app live side by side.** A work Claude next to your personal Claude, two
-  ChatGPTs signed into different accounts, a second Cursor for a side project. Each copy has its own name, its own Dock icon (tinted in the
-  universe's colour, if you like) and, for apps that support it, its own logins.
+  ChatGPTs signed into different accounts, a second Cursor for a side project. Each copy has its own
+  name, its own Dock icon (ivory, graphite or the universe's colour) and, for apps that support it,
+  its own logins.
 - **Links open in the right browser.** A link you click in a work app opens in your work browser.
   A link from a personal app opens in your personal browser. That can be a separate profile of the
   same browser, which Settings → "Make a separate browser" sets up for you.

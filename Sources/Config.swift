@@ -14,7 +14,8 @@ struct Universe: Codable, Identifiable, Hashable {
     /// Hex colour, used for tinted icons and the sidebar.
     var color: String?
 
-    static let palette = ["#5B8DEF", "#E5484D", "#30A46C", "#F5A524", "#8E4EC6", "#12A594"]
+    /// Muted colours that sit with the Carbon identity (slate, olive, clay, sand, plum, sage).
+    static let palette = ["#7E95B0", "#9DA67C", "#C2876A", "#CDB98A", "#8F7A9E", "#7FA394"]
 }
 
 enum AppKind: String, Codable, CaseIterable, Identifiable {
@@ -28,7 +29,8 @@ enum AppKind: String, Codable, CaseIterable, Identifiable {
 }
 
 enum IconStyle: String, Codable, CaseIterable, Identifiable {
-    case original, invert, tint
+    /// ivory: ivory tile, the app's symbol in graphite. graphite: the reverse. tint: universe colour.
+    case original, invert, tint, ivory, graphite
     var id: String { rawValue }
 }
 
