@@ -4,9 +4,6 @@
 
 Keep work and personal apart on one Mac, even inside the same app.
 
-<p align="center"><img src="docs/gifs/order.gif" alt="A tangle of apps snaps into Work and Personal: run copies of any app, organize your workflow."></p>
-<p align="center"><a href="https://github.com/user-attachments/assets/c994feac-b197-4ad8-ab30-9d4248119ffe">Watch the full film with sound</a></p>
-
 Multiverse is a small menu bar app. You make **universes** (say 💼 Work and 🏠 Personal), put apps
 in them, and:
 
@@ -14,14 +11,12 @@ in them, and:
   ChatGPTs signed into different accounts, a second Cursor for a side project. Each copy has its own
   name, its own Dock icon (ivory, graphite or the universe's colour) and, for apps that support it,
   its own logins.
-
-<p align="center"><img src="docs/gifs/copies.gif" alt="One Claude icon splits into two copies, then both open signed into different accounts."></p>
-
 - **Links open in the right browser.** A link you click in a work app opens in your work browser.
   A link from a personal app opens in your personal browser. That can be a separate profile of the
   same browser, which Settings → "Make a separate browser" sets up for you.
 
-<p align="center"><img src="docs/gifs/universes.gif" alt="Work Claude to Chrome, Personal ChatGPT to Dia, Side project Cursor to Side project Dia."></p>
+<p align="center"><img src="docs/gifs/route.gif" alt="A link clicked in Work Claude travels through the Work universe and opens in Chrome."><br>
+<a href="https://github.com/user-attachments/assets/c994feac-b197-4ad8-ab30-9d4248119ffe">Watch the full film</a></p>
 
 macOS has one default browser for everything. Multiverse becomes that default browser, looks at
 which app the link came from, and passes it on.
@@ -60,13 +55,9 @@ Then open Multiverse from the menu bar → **Settings…**, create your universe
 **Turn on** so links start being routed. macOS asks you to confirm the browser change.
 Multiverse opens at login from then on; switch that off with **Open at login** in its menu.
 
-<p align="center"><img src="docs/gifs/menu.gif" alt="The Multiverse menu bar menu, listing each universe's apps."></p>
-
 ## How it works
 
 ### Copies
-
-<p align="center"><img src="docs/gifs/names.gif" alt="Personal Claude and Personal ChatGPT, each a copy with its own logins, side by side in the Dock."></p>
 
 A copy is an APFS clone of the original app, so it takes almost no extra disk space. Multiverse
 changes the clone's name, bundle id and icon, then signs it again for this Mac. The original app is
@@ -102,8 +93,6 @@ never touched.
   (for example iCloud, push notifications or keychain sharing).
 
 ### Link routing
-
-<p align="center"><img src="docs/gifs/route.gif" alt="A link clicked in Work Claude travels through the Work universe and opens in Chrome."></p>
 
 When a link arrives, Multiverse asks macOS which process sent it. It matches that process to an app
 in one of your universes. It goes by the app's location, its bundle id, and for second profiles the
