@@ -54,7 +54,8 @@ Multiverse opens at login from then on; switch that off with **Open at login** i
 
 ## How it works
 
-https://github.com/user-attachments/assets/c994feac-b197-4ad8-ab30-9d4248119ffe
+<p align="center"><a href="https://github.com/user-attachments/assets/c994feac-b197-4ad8-ab30-9d4248119ffe"><img src="docs/multiverse.gif" alt="Apps snap into Work and Personal universes, and a link from a work app opens in the work browser."></a></p>
+<p align="center"><a href="https://github.com/user-attachments/assets/c994feac-b197-4ad8-ab30-9d4248119ffe">Watch the full film with sound</a></p>
 
 ### Copies
 
