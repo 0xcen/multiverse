@@ -1,3 +1,4 @@
+import ServiceManagement
 import SwiftUI
 
 /// Automation permission (Apple Events) for sending links to a browser profile.
@@ -606,6 +607,20 @@ private struct PermissionsStep: View {
                     status: store.routingOn ? .done : .needed,
                     actionTitle: "Turn on"
                 ) { store.makeDefaultBrowser() }
+
+                PermissionRow(
+                    symbol: "power", title: "Open at login",
+                    why: "Starts Multiverse when you log in, so links are routed from your first click. You can change this in the menu bar menu.",
+                    status: store.openAtLogin ? .done
+                        : SMAppService.mainApp.status == .requiresApproval ? .denied : .needed,
+                    actionTitle: "Turn on"
+                ) {
+                    if SMAppService.mainApp.status == .requiresApproval {
+                        SMAppService.openSystemSettingsLoginItems()
+                    } else {
+                        store.setOpenAtLogin(true)
+                    }
+                }
 
                 ForEach(targets, id: \.bundleID) { t in
                     PermissionRow(

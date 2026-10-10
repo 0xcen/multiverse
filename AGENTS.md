@@ -121,6 +121,9 @@ macOS shows a dialog. Tell the user to click **Use "Multiverse"**. You can't cli
 The first time a link goes to a browser profile, macOS may ask whether Multiverse may control that
 browser. The user should click **Allow**.
 
+Multiverse adds itself to the login items the first time it runs from /Applications, so it starts
+when the user logs in. They can switch that off with **Open at login** in its menu bar menu.
+
 ## 7. Verify
 
 ```bash

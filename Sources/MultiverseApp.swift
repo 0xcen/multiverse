@@ -1,3 +1,4 @@
+import ServiceManagement
 import SwiftUI
 
 @MainActor
@@ -9,6 +10,7 @@ final class Store: ObservableObject {
     }
     @Published var recent: [RouteRecord] = []
     @Published var routingOn = false
+    @Published var openAtLogin = SMAppService.mainApp.status == .enabled
     @Published var busy: Set<UUID> = []
     @Published var errors: [UUID: String] = [:]
     /// Universe for Settings to show next time it appears (e.g. after setup).
@@ -131,6 +133,27 @@ final class Store: ObservableObject {
     func refreshRouting() {
         routingOn = NSWorkspace.shared.urlForApplication(toOpen: URL(string: "https://example.com")!)?.standardizedFileURL
             == Bundle.main.bundleURL.standardizedFileURL
+        openAtLogin = SMAppService.mainApp.status == .enabled
+    }
+
+    /// Adds or removes Multiverse from the login items (System Settings → General → Login Items).
+    func setOpenAtLogin(_ on: Bool) {
+        do {
+            if on { try SMAppService.mainApp.register() } else { try SMAppService.mainApp.unregister() }
+        } catch {
+            Log.write("open at login: \(error.localizedDescription)")
+        }
+        openAtLogin = SMAppService.mainApp.status == .enabled
+    }
+
+    /// Turns on opening at login once, the first time Multiverse runs from /Applications.
+    /// After that it's the user's choice, so switching it off sticks.
+    func enableOpenAtLoginOnce() {
+        let key = "openAtLoginSet"
+        guard !UserDefaults.standard.bool(forKey: key),
+              Bundle.main.bundlePath.hasPrefix("/Applications/") else { return }
+        UserDefaults.standard.set(true, forKey: key)
+        setOpenAtLogin(true)
     }
 }
 
@@ -169,6 +192,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        Store.shared.enableOpenAtLoginOnce()
         if !showOnboardingIfNeeded(), Store.shared.config.universes.isEmpty { showSettings() }
     }
 
@@ -226,6 +250,7 @@ struct MenuContent: View {
         Button("Settings…") { showSettings() }
             .keyboardShortcut(",")
         Button("Setup & permissions…") { showOnboarding() }
+        Toggle("Open at login", isOn: Binding(get: { store.openAtLogin }, set: { store.setOpenAtLogin($0) }))
         Divider()
         Button("Quit Multiverse") { NSApp.terminate(nil) }.keyboardShortcut("q")
     }

@@ -50,6 +50,7 @@ git clone https://github.com/0xcen/multiverse && cd multiverse
 
 Then open Multiverse from the menu bar → **Settings…**, create your universes, and click
 **Turn on** so links start being routed. macOS asks you to confirm the browser change.
+Multiverse opens at login from then on; switch that off with **Open at login** in its menu.
 
 ## How it works
 
