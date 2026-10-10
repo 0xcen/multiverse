@@ -15,7 +15,7 @@ in them, and:
   A link from a personal app opens in your personal browser. That can be a separate profile of the
   same browser, which Settings → "Make a separate browser" sets up for you.
 
-<p align="center"><img src="docs/gifs/route.gif" alt="A link clicked in Work Claude travels through the Work universe and opens in Chrome."><br>
+<p align="center"><img src="docs/gifs/universes.gif" alt="Every link in its own universe: Work Claude to Chrome, Personal ChatGPT to Dia, Side project Cursor to Side project Dia."><br>
 <a href="https://github.com/user-attachments/assets/c994feac-b197-4ad8-ab30-9d4248119ffe">Watch the full film</a></p>
 
 macOS has one default browser for everything. Multiverse becomes that default browser, looks at
