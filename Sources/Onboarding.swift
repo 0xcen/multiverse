@@ -277,7 +277,7 @@ private struct Point: View {
         guard let (_, ds) = dupes.first, let first = ds.first else { return nil }
         let names = ds.map(\.name).joined(separator: " and ")
         let browser = first.profile?.name ?? appName(first.browserPath)
-        return "\(names) both open links in the same \(browser), so their links won't be kept apart. Pick a different browser or turn on “Separate” for one of them."
+        return "\(names) both open links in the same \(browser), so their links won't be kept apart. Pick a different browser or a new one for one of them."
     }
 
     func addDraft() {
@@ -444,7 +444,7 @@ private struct DraftCard: View {
 
     var body: some View {
         let browserName = appName(draft.browserPath)
-        let canSeparate = draft.profile == nil && Builder.supportsProfiles(URL(fileURLWithPath: draft.browserPath))
+        let universeName = draft.name.isEmpty ? "this universe" : draft.name
         VStack(alignment: .leading, spacing: 10) {
             HStack(spacing: 10) {
                 EmojiButton(emoji: $draft.emoji)
@@ -463,9 +463,11 @@ private struct DraftCard: View {
             HStack(spacing: 8) {
                 Text("Links open in").foregroundStyle(.secondary)
                 Menu {
-                    ForEach(installedBrowsers(), id: \.self) { b in
-                        Button { draft.browserPath = b.path; draft.profile = nil } label: {
-                            Label { Text(appName(b.path)) } icon: { Image(nsImage: appIcon(b.path, size: 16)) }
+                    Section("Your browsers") {
+                        ForEach(installedBrowsers(), id: \.self) { b in
+                            Button { draft.browserPath = b.path; draft.profile = nil; draft.separate = false } label: {
+                                Label { Text(appName(b.path)) } icon: { Image(nsImage: appIcon(b.path, size: 16)) }
+                            }
                         }
                     }
                     let profiles = existingProfiles()
@@ -478,20 +480,28 @@ private struct DraftCard: View {
                             }
                         }
                     }
+                    Section("Create a new browser") {
+                        ForEach(installedBrowsers().filter { Builder.supportsProfiles($0) }, id: \.self) { b in
+                            Button { draft.browserPath = b.path; draft.profile = nil; draft.separate = true } label: {
+                                Label { Text("New \(appName(b.path)) just for \(universeName)") } icon: { Image(nsImage: appIcon(b.path, size: 16)) }
+                            }
+                        }
+                    }
                 } label: {
                     HStack {
                         Image(nsImage: appIcon(draft.profile?.launcherPath ?? draft.browserPath, size: 16))
-                        Text(draft.profile?.name ?? browserName)
+                        Text(draft.profile?.name ?? (draft.separate ? "New \(browserName) just for \(universeName)" : browserName))
                     }
                 }
                 .fixedSize()
-                if canSeparate {
-                    Toggle("Separate \(browserName) for \(draft.name.isEmpty ? "this universe" : draft.name)", isOn: $draft.separate)
-                        .toggleStyle(.checkbox)
-                        .help("Its own \(browserName), with its own logins, history and extensions")
-                }
             }
             .font(.callout)
+            if draft.separate {
+                Text(Builder.copyBlocker(URL(fileURLWithPath: draft.browserPath)) == nil
+                     ? "When you continue, Multiverse creates a separate \(browserName) app for \(universeName), with its own Dock icon. It starts empty, with no logins, history or extensions, so \(universeName) stays apart from your other \(browserName)."
+                     : "When you continue, Multiverse creates a separate \(browserName) profile for \(universeName), opened from its own app in Applications. It starts empty, with no logins, history or extensions. Its windows share \(browserName)'s Dock icon, because \(browserName) can't run as a copy.")
+                    .font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+            }
         }
         .padding(14)
         .background(RoundedRectangle(cornerRadius: 12).fill(.background.secondary))
