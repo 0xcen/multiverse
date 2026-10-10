@@ -2,6 +2,8 @@
 
 # Multiverse
 
+**[Watch the 32-second launch film](docs/multiverse-launch.mp4)**
+
 Keep work and personal apart on one Mac, even inside the same app.
 
 Multiverse is a small menu bar app. You make **universes** (say 💼 Work and 🏠 Personal), put apps
