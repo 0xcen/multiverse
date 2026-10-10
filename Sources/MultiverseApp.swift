@@ -11,6 +11,8 @@ final class Store: ObservableObject {
     @Published var routingOn = false
     @Published var busy: Set<UUID> = []
     @Published var errors: [UUID: String] = [:]
+    /// Universe for Settings to show next time it appears (e.g. after setup).
+    @Published var showUniverse: UUID?
     /// A just-created universe whose name field should open focused.
     @Published var renameOnOpen: UUID?
 

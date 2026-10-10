@@ -46,9 +46,11 @@ private let onboardedKey = "onboardingCompleted"
                               styleMask: [.titled, .closable, .fullSizeContentView], backing: .buffered, defer: false)
         window.titlebarAppearsTransparent = true
         window.title = "Set up Multiverse"
-        window.contentViewController = NSHostingController(rootView: OnboardingView {
+        window.contentViewController = NSHostingController(rootView: OnboardingView { universe in
             UserDefaults.standard.set(true, forKey: onboardedKey)
             onboardingWindow?.close()
+            onboardingWindow = nil
+            Store.shared.showUniverse = universe
             showSettings()
         }.environmentObject(Store.shared))
         window.setContentSize(NSSize(width: 640, height: 600))
@@ -64,52 +66,55 @@ private let onboardedKey = "onboardingCompleted"
 struct OnboardingView: View {
     @EnvironmentObject var store: Store
     @StateObject private var setup: SetupModel
-    let finish: () -> Void
-    @State private var step: Int
-    private let steps = 5
+    /// Called with the universe to show in Settings afterwards.
+    let finish: (UUID?) -> Void
+    @State private var step: Step
 
-    init(startAt step: Int = 0, setup: SetupModel? = nil, finish: @escaping () -> Void) {
+    enum Step: Int, CaseIterable { case welcome, universes, build, permissions }
+
+    init(startAt step: Int = 0, setup: SetupModel? = nil, finish: @escaping (UUID?) -> Void) {
         self.finish = finish
-        _step = State(initialValue: step)
+        _step = State(initialValue: Step(rawValue: step) ?? .welcome)
         _setup = StateObject(wrappedValue: setup ?? SetupModel(config: Store.shared.config))
     }
+
+    /// The build step only appears when there's something to build.
+    private var steps: [Step] { Step.allCases.filter { $0 != .build || !setup.tasks.isEmpty } }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             Group {
                 switch step {
-                case 0: WelcomeStep()
-                case 1: UniversesStep()
-                case 2: AppsStep()
-                case 3: BuildStep()
-                default: PermissionsStep()
+                case .welcome: WelcomeStep()
+                case .universes: UniversesStep()
+                case .build: BuildStep()
+                case .permissions: PermissionsStep()
                 }
             }
             .environmentObject(setup)
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-            .task { setup.loadApps(store.config) }
 
             Divider().padding(.horizontal, -32).padding(.bottom, 14)
             HStack {
                 HStack(spacing: 6) {
-                    ForEach(0..<steps, id: \.self) { i in
-                        Circle().fill(i == step ? Color.accentColor : Color.secondary.opacity(0.3)).frame(width: 7, height: 7)
+                    ForEach(steps, id: \.self) { s in
+                        Circle().fill(s == step ? Color.accentColor : Color.secondary.opacity(0.3)).frame(width: 7, height: 7)
                     }
                 }
                 Spacer()
-                if step > 0 && step != 4 { Button("Back") { step -= 1 }.disabled(setup.building) }
-                if step == 2 && setup.placements.isEmpty {
-                    Button("Skip") { advance() }
-                }
-                if step < steps - 1 {
-                    Button(continueTitle) { advance() }
+                if step == .universes { Button("Back") { step = .welcome } }
+                if step != .permissions {
+                    Button(step == .welcome ? "Get started" : "Continue") { advance() }
                         .keyboardShortcut(.defaultAction)
                         .buttonStyle(.borderedProminent)
                         .disabled(!canContinue)
                 } else {
-                    Button("Done") { finish() }
-                        .keyboardShortcut(.defaultAction)
-                        .buttonStyle(.borderedProminent)
+                    Button(store.config.universes.count > 1 ? "Add apps" : "Done") {
+                        // Land on a universe other than the main one: that's where apps get added.
+                        finish(store.config.universes.first { $0.id != store.config.defaultUniverseID }?.id)
+                    }
+                    .keyboardShortcut(.defaultAction)
+                    .buttonStyle(.borderedProminent)
                 }
             }
         }
@@ -119,27 +124,24 @@ struct OnboardingView: View {
         .frame(width: 640, height: 600)
     }
 
-    private var continueTitle: String {
-        switch step {
-        case 0: "Get started"
-        case 2: setup.placements.isEmpty ? "Continue" : "Set up \(setup.placements.count) app\(setup.placements.count == 1 ? "" : "s")"
-        default: "Continue"
-        }
-    }
-
     private var canContinue: Bool {
         switch step {
-        case 1: setup.universesValid
-        case 3: !setup.building
+        case .universes: setup.universesValid
+        case .build: !setup.building
         default: true
         }
     }
 
     private func advance() {
-        if step == 1 { setup.saveUniverses(into: store) }
-        if step == 2 { setup.planBuild(with: store) }
-        step += 1
-        if step == 3 { setup.runBuild(with: store) }
+        switch step {
+        case .welcome: step = .universes
+        case .universes:
+            setup.saveUniverses(into: store)
+            setup.planBuild(with: store)
+            if setup.tasks.isEmpty { step = .permissions } else { step = .build; setup.runBuild(with: store) }
+        case .build: step = .permissions
+        case .permissions: break
+        }
     }
 }
 
@@ -192,8 +194,6 @@ private struct Point: View {
         var separate: Bool
     }
 
-    enum Placement: Hashable { case universe(UUID), every }
-
     struct Task: Identifiable {
         enum State: Equatable { case waiting, working, done, failed(String) }
         let id = UUID()
@@ -208,20 +208,8 @@ private struct Point: View {
     /// True when the user had no universes: step 2 is then an editor of suggested drafts.
     let fresh: Bool
     @Published var drafts: [Draft] = []
-    @Published var defaultID: UUID?
-    /// App path → where it goes.
-    @Published var placements: [String: Placement] = [:]
     @Published var tasks: [Task] = []
     @Published var building = false
-    /// Installed apps for the Apps step, loaded in the background as soon as setup opens.
-    @Published var appRows: [AppsStep.Row]?
-
-    func loadApps(_ config: Config) {
-        guard appRows == nil else { return }
-        _Concurrency.Task {
-            appRows = await _Concurrency.Task.detached { AppsStep.load(config) }.value
-        }
-    }
 
     init(config: Config) {
         fresh = config.universes.isEmpty
@@ -231,7 +219,6 @@ private struct Point: View {
         let personal = Draft(name: "Personal", emoji: "🏠", color: Universe.palette[2], browserPath: browser,
                              separate: Builder.supportsProfiles(URL(fileURLWithPath: browser)))
         drafts = [work, personal]
-        defaultID = work.id
     }
 
     /// The user's browser before Multiverse, or a sensible installed one.
@@ -247,6 +234,9 @@ private struct Point: View {
         }
         return browsers.first?.path ?? "/Applications/Safari.app"
     }
+
+    /// The main universe: every app starts here, and links from apps not moved elsewhere open here.
+    var mainID: UUID? { fresh ? drafts.first?.id : nil }
 
     var universesValid: Bool {
         if !fresh { return true }
@@ -282,7 +272,7 @@ private struct Point: View {
         }
         let keep = Set(drafts.map(\.id))
         store.config.universes.removeAll { !keep.contains($0.id) }
-        store.config.defaultUniverseID = defaultID ?? drafts.first?.id
+        store.config.defaultUniverseID = drafts.first?.id
     }
 
     /// Turns the choices into a list of things to build.
@@ -298,30 +288,6 @@ private struct Point: View {
                               copy: (name, appName(browser.path))) { store in
                 try await SetupModel.make(name: name, from: browser, in: u.id, store: store, isBrowser: true)
             })
-        }
-        // Apps
-        let defaultUniverse = config.defaultUniverse
-        for (path, placement) in placements.sorted(by: { appName($0.key) < appName($1.key) }) {
-            let app = URL(fileURLWithPath: path), name = appName(path)
-            switch placement {
-            case .universe(let id):
-                guard let u = config.universe(id) else { continue }
-                tasks.append(Task(title: "\(name) in \(u.emoji) \(u.name)", iconPath: path) { store in
-                    store.config.apps.append(AppEntry(name: name, kind: .original, sourcePath: path, universeID: id))
-                })
-            case .every:
-                guard let home = defaultUniverse else { continue }
-                tasks.append(Task(title: "\(name) in \(home.emoji) \(home.name)", iconPath: path) { store in
-                    store.config.apps.append(AppEntry(name: name, kind: .original, sourcePath: path, universeID: home.id))
-                })
-                for u in config.universes where u.id != home.id {
-                    let copyName = uniqueName("\(u.name) \(name)", in: config)
-                    tasks.append(Task(title: "\(copyName), a copy of \(name) for \(u.name)", iconPath: path,
-                                      copy: Builder.supportsProfiles(app) ? (copyName, name) : nil) { store in
-                        try await SetupModel.make(name: copyName, from: app, in: u.id, store: store, isBrowser: false)
-                    })
-                }
-            }
         }
     }
 
@@ -387,12 +353,22 @@ private struct UniversesStep: View {
         ScrollView {
             VStack(alignment: .leading, spacing: 14) {
                 Text("Your universes").font(.largeTitle.bold())
-                Text("A universe is one side of your life, with its own browser. We've suggested two; change anything you like.")
-                    .foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
-                ForEach($setup.drafts) { $d in
-                    DraftCard(draft: $d, canRemove: setup.drafts.count > 1) {
+                Text("A universe is one side of your life, with its own browser.")
+                    .foregroundStyle(.secondary)
+
+                Text("Main universe").font(.headline).padding(.top, 4)
+                Text("Every app starts here, and links from apps you don't move open in its browser. Name it after the side most of your apps belong to.")
+                    .font(.callout).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+                if let first = setup.drafts.indices.first {
+                    DraftCard(draft: $setup.drafts[first], canRemove: false, isMain: true) {}
+                }
+
+                Text("Other universes").font(.headline).padding(.top, 8)
+                Text("After setup you'll add the apps that belong here, or a copy of one you also use in your main universe.")
+                    .font(.callout).foregroundStyle(.secondary)
+                ForEach($setup.drafts.dropFirst()) { $d in
+                    DraftCard(draft: $d, canRemove: true, isMain: false) {
                         setup.drafts.removeAll { $0.id == d.id }
-                        if setup.defaultID == d.id { setup.defaultID = setup.drafts.first?.id }
                     }
                 }
                 Button { setup.addDraft() } label: { Label("Add a universe", systemImage: "plus") }
@@ -401,16 +377,6 @@ private struct UniversesStep: View {
                     Label(warning, systemImage: "exclamationmark.triangle").font(.callout).foregroundStyle(.orange)
                         .fixedSize(horizontal: false, vertical: true)
                 }
-                HStack {
-                    Text("Links from other apps open in")
-                    Picker("", selection: Binding(get: { setup.defaultID ?? setup.drafts.first?.id ?? UUID() },
-                                                  set: { setup.defaultID = $0 })) {
-                        ForEach(setup.drafts) { d in Text("\(d.emoji) \(d.name.isEmpty ? "Untitled" : d.name)").tag(d.id) }
-                    }
-                    .labelsHidden()
-                    .fixedSize()
-                }
-                .font(.callout)
             }
             .padding(.bottom, 12)
         }
@@ -427,7 +393,7 @@ private struct UniversesStep: View {
                         Text("\(u.emoji) \(u.name)").font(.headline)
                         if store.config.defaultUniverse?.id == u.id {
                             Image(systemName: "star.fill").font(.caption).foregroundStyle(.secondary)
-                                .help("Links from apps that aren't in any universe open here")
+                                .help("Main universe: every app not in another universe belongs here")
                         }
                         Spacer()
                         BrowserPicker(universe: $u)
@@ -444,6 +410,7 @@ private struct UniversesStep: View {
 private struct DraftCard: View {
     @Binding var draft: SetupModel.Draft
     let canRemove: Bool
+    var isMain = false
     let remove: () -> Void
     @FocusState private var nameFocused: Bool
 
@@ -453,11 +420,11 @@ private struct DraftCard: View {
         VStack(alignment: .leading, spacing: 10) {
             HStack(spacing: 10) {
                 EmojiButton(emoji: $draft.emoji)
-                TextField("Name, e.g. Side project", text: $draft.name)
+                TextField(isMain ? "Name, e.g. Work" : "Name, e.g. Personal", text: $draft.name)
                     .textFieldStyle(.plain)
                     .font(.title2.bold())
                     .focused($nameFocused)
-                    .onAppear { if draft.name.isEmpty { DispatchQueue.main.async { nameFocused = true } } }
+                    .onAppear { if draft.name.isEmpty || isMain { DispatchQueue.main.async { nameFocused = true } } }
                 Spacer()
                 ColorSwatches(color: Binding(get: { draft.color }, set: { draft.color = $0 ?? draft.color }))
                 if canRemove {
@@ -494,101 +461,7 @@ private struct DraftCard: View {
     }
 }
 
-// MARK: Step 5 – permissions – apps
-
-struct AppsStep: View {
-    @EnvironmentObject var store: Store
-    @EnvironmentObject var setup: SetupModel
-    @State private var search = ""
-
-    private var apps: [Row] { setup.appRows ?? [] }
-    private var loading: Bool { setup.appRows == nil }
-
-    /// Everything a row needs, worked out once off the main thread so typing in search stays instant.
-    struct Row: Identifiable {
-        let path: String
-        let name: String
-        let icon: NSImage
-        let suggested: Bool
-        let canCopy: Bool
-        var id: String { path }
-    }
-
-    var body: some View {
-        let shown = search.isEmpty ? apps : apps.filter { $0.name.localizedCaseInsensitiveContains(search) }
-        VStack(alignment: .leading, spacing: 12) {
-            Text("Your apps").font(.largeTitle.bold())
-            Text("Links you open in an app go to its universe's browser. Pick “\(bothLabel)” for an app you use in each: you keep the original and get a separate copy with its own logins.")
-                .foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
-            TextField("Search apps", text: $search).textFieldStyle(.roundedBorder)
-            if loading {
-                ProgressView("Looking at your apps…").frame(maxWidth: .infinity, maxHeight: .infinity)
-            } else if shown.isEmpty {
-                Text("No apps match “\(search)”.").foregroundStyle(.secondary).frame(maxWidth: .infinity, maxHeight: .infinity)
-            } else {
-                List {
-                    let suggested = shown.filter(\.suggested)
-                    if !suggested.isEmpty {
-                        Section("Suggested") { ForEach(suggested) { row($0) } }
-                    }
-                    let others = shown.filter { !$0.suggested }
-                    if !others.isEmpty {
-                        Section(suggested.isEmpty ? "Apps" : "Other apps") { ForEach(others) { row($0) } }
-                    }
-                }
-                .listStyle(.inset)
-            }
-        }
-        .task { setup.loadApps(store.config) }
-    }
-
-    nonisolated static func load(_ config: Config) -> [Row] {
-        let browsers = Set(installedBrowsers().map(\.path))
-        return installedApps(excluding: config)
-            .filter { app in
-                !browsers.contains(app.url.path) && !config.apps.contains { expand($0.sourcePath) == app.url.path }
-            }
-            .map { a in
-                let profiles = Builder.supportsProfiles(a.url)
-                let blocked = Builder.copyBlocker(a.url) != nil
-                return Row(path: a.url.path, name: a.name, icon: appIcon(a.url.path, size: 22),
-                           suggested: common.contains(a.name) || (!a.url.path.hasPrefix("/System/") && profiles),
-                           canCopy: !blocked || profiles)
-            }
-    }
-
-    private var bothLabel: String { store.config.universes.count > 2 ? "Every universe" : "Both" }
-
-    /// Apps people commonly split between work and personal: chat, mail, notes, meetings, and
-    /// Electron apps generally (they can get separate logins).
-    nonisolated private static let common: Set<String> = [
-        "Slack", "Discord", "Telegram", "WhatsApp", "Signal", "Messages", "Mail", "Messenger", "Microsoft Teams",
-        "Zoom", "zoom.us", "Notion", "Notion Calendar", "Linear", "Figma", "Spotify", "Superhuman", "Spark",
-        "Obsidian", "Craft", "Things3", "Todoist", "Cursor", "Visual Studio Code", "Microsoft Outlook",
-        "Gmail", "Calendar", "Notes", "Granola", "Loom", "Asana", "ClickUp", "Trello", "Airtable", "1Password",
-    ]
-
-    private func row(_ a: Row) -> some View {
-        HStack {
-            Image(nsImage: a.icon)
-            Text(a.name)
-            Spacer()
-            Picker("", selection: Binding(get: { setup.placements[a.path] }, set: { setup.placements[a.path] = $0 })) {
-                Text("Not included").tag(Optional<SetupModel.Placement>.none)
-                ForEach(store.config.universes) { u in
-                    Text("\(u.emoji) \(u.name)").tag(Optional(SetupModel.Placement.universe(u.id)))
-                }
-                if store.config.universes.count > 1 && a.canCopy {
-                    Text(bothLabel).tag(Optional(SetupModel.Placement.every))
-                }
-            }
-            .labelsHidden()
-            .fixedSize()
-        }
-    }
-}
-
-// MARK: Step 4 – build
+// MARK: Step 3 – build
 
 private struct BuildStep: View {
     @EnvironmentObject var setup: SetupModel
@@ -597,7 +470,7 @@ private struct BuildStep: View {
         VStack(alignment: .leading, spacing: 14) {
             Text(setup.building ? "Setting up…" : (setup.tasks.isEmpty ? "Nothing to build" : "All set")).font(.largeTitle.bold())
             if setup.tasks.isEmpty {
-                Text("You can add apps, copies and separate browsers any time in Settings.").foregroundStyle(.secondary)
+                Text("Nothing to build.").foregroundStyle(.secondary)
             } else {
                 ScrollView {
                     VStack(spacing: 0) {
@@ -638,7 +511,7 @@ private struct BuildStep: View {
     }
 }
 
-// MARK: Step 5 – permissions
+// MARK: Step 4 – permissions
 
 private struct PermissionsStep: View {
     @EnvironmentObject var store: Store

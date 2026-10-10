@@ -18,7 +18,7 @@ struct SettingsView: View {
                             Spacer()
                             if store.config.defaultUniverse?.id == u.id {
                                 Image(systemName: "star.fill").font(.caption2).foregroundStyle(.secondary)
-                                    .help("Links from apps that aren't in any universe open here")
+                                    .help("Main universe: every app not in another universe belongs here")
                             }
                             Circle().fill(Color(nsColor: NSColor(hex: u.color ?? "") ?? .tertiaryLabelColor))
                                 .frame(width: 8, height: 8)
@@ -51,7 +51,11 @@ struct SettingsView: View {
         }
         .onAppear {
             store.refreshRouting()
+            if let id = store.showUniverse { selection = id; store.showUniverse = nil }
             if selection == nil { selection = store.config.universes.first?.id }
+        }
+        .onChange(of: store.showUniverse) { _, id in
+            if let id { selection = id; store.showUniverse = nil }
         }
     }
 
@@ -116,7 +120,7 @@ struct UniversePage: View {
                     Text("Links open in").font(.headline)
                     BrowserPicker(universe: $universe)
                     Text(isDefault
-                         ? "Used for links from these apps, and from any app that isn't in a universe."
+                         ? "Main universe: used for links from every app that isn't in another universe."
                          : "Used for links you open from the apps below.")
                         .font(.caption).foregroundStyle(.secondary)
                 }
@@ -128,8 +132,11 @@ struct UniversePage: View {
                         Button { adding = true } label: { Label("Add app", systemImage: "plus") }
                     }
                     if apps.isEmpty {
-                        Text("No apps yet. Add an app as it is, or make a separate copy of one you also use in another universe, like a work copy of a chat app.")
+                        Text(isDefault
+                             ? "Every app that isn't in another universe is in \(universe.name). Add an app here only to give it a separate copy."
+                             : "Every app is in \(store.config.defaultUniverse.map { "\($0.emoji) \($0.name)" } ?? "your main universe") until you add it here. Add apps that belong to \(universe.name), or a separate copy of one you use in both.")
                             .foregroundStyle(.secondary)
+                            .fixedSize(horizontal: false, vertical: true)
                             .padding(.vertical, 6)
                     }
                     VStack(spacing: 0) {
@@ -165,7 +172,7 @@ struct UniversePage: View {
                 .help("Colour, used for tinted app icons")
             Menu {
                 Button("Rename") { renaming = true }
-                Button("Use for apps not in any universe") { store.config.defaultUniverseID = universe.id }
+                Button("Make this the main universe") { store.config.defaultUniverseID = universe.id }
                     .disabled(isDefault)
                 Divider()
                 Button("Delete universe…", role: .destructive) { confirmDelete = true }
