@@ -1,4 +1,4 @@
-<p align="center"><img src="docs/launch.png" alt="Multiverse: keep work and personal apart on one Mac"></p>
+<p align="center"><img src="docs/launch.png" alt="Multiverse: same apps, different universes. Separate logins, every link in the right browser."></p>
 
 # Multiverse
 
