@@ -7,6 +7,8 @@ import SwiftUI
 private let work = Color(red: 0.36, green: 0.55, blue: 0.94)
 private let personal = Color(red: 0.19, green: 0.64, blue: 0.42)
 private let workNS = NSColor(red: 0.36, green: 0.55, blue: 0.94, alpha: 1)
+private let side = Color(red: 0.56, green: 0.31, blue: 0.78)
+private let sideNS = NSColor(red: 0.56, green: 0.31, blue: 0.78, alpha: 1)
 private let personalNS = NSColor(red: 0.19, green: 0.64, blue: 0.42, alpha: 1)
 
 private func icon(_ app: String, tint: NSColor? = nil) -> NSImage {
@@ -23,6 +25,7 @@ struct LaunchImage: View {
             // Two universes as two glows.
             RadialGradient(colors: [work.opacity(0.45), .clear], center: UnitPoint(x: 0.72, y: 0.18), startRadius: 0, endRadius: 520)
             RadialGradient(colors: [personal.opacity(0.38), .clear], center: UnitPoint(x: 0.9, y: 0.95), startRadius: 0, endRadius: 520)
+            RadialGradient(colors: [side.opacity(0.28), .clear], center: UnitPoint(x: 0.98, y: 0.62), startRadius: 0, endRadius: 420)
             RadialGradient(colors: [Color.white.opacity(0.06), .clear], center: UnitPoint(x: 0.18, y: 0.35), startRadius: 0, endRadius: 420)
             DotGrid().opacity(0.5)
 
@@ -37,7 +40,7 @@ struct LaunchImage: View {
                         .font(.system(size: 92, weight: .bold, design: .default))
                         .tracking(-2.5)
                         .foregroundStyle(LinearGradient(colors: [.white, .white.opacity(0.72)], startPoint: .top, endPoint: .bottom))
-                    Text("Keep work and personal apart on one Mac.\nSeparate copies of your apps, separate logins,\nand every link opens in the right browser.")
+                    Text("Run every app in more than one universe:\nwork, personal, side projects. Each copy has\nits own logins, and links open in the right browser.")
                         .font(.system(size: 27, weight: .regular))
                         .foregroundStyle(.white.opacity(0.62))
                         .lineSpacing(6)
@@ -51,7 +54,7 @@ struct LaunchImage: View {
                 .frame(width: 720, alignment: .leading)
 
                 // Right: links flowing from apps, through Multiverse, to each universe's browser
-                RoutingFlow(hub: appIcon)
+                UniverseDocks()
                     .frame(width: 660, height: 640)
             }
             .padding(.horizontal, 96)
@@ -71,6 +74,51 @@ private struct Pill: View {
             .padding(.horizontal, 14).padding(.vertical, 8)
             .background(Capsule().fill(.white.opacity(0.07)))
             .overlay(Capsule().stroke(.white.opacity(0.12)))
+    }
+}
+
+/// The same apps, once per universe: like three Docks from parallel versions of your Mac, offset
+/// like the panes in the Multiverse icon.
+private struct UniverseDocks: View {
+    struct Shelf { let title: String; let note: String; let color: Color; let tint: NSColor?; let browser: String }
+    private let shelves = [
+        Shelf(title: "💼 Work", note: "links open in Chrome", color: work, tint: nil, browser: "Google Chrome"),
+        Shelf(title: "🏠 Personal", note: "own logins · links open in Personal Dia", color: personal, tint: personalNS, browser: "Dia"),
+        Shelf(title: "🚀 Side project", note: "own logins · links open in Side project Dia", color: side, tint: sideNS, browser: "Dia"),
+    ]
+    private let apps = ["Notion", "Claude", "Slack"]
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 26) {
+            ForEach(Array(shelves.enumerated()), id: \.offset) { i, shelf in
+                VStack(alignment: .leading, spacing: 12) {
+                    HStack(spacing: 10) {
+                        Text(shelf.title).font(.system(size: 20, weight: .bold)).foregroundStyle(.white)
+                        Text(shelf.note).font(.system(size: 14)).foregroundStyle(.white.opacity(0.5))
+                    }
+                    HStack(spacing: 16) {
+                        ForEach(apps, id: \.self) { app in
+                            Image(nsImage: icon(app, tint: shelf.tint)).resizable().frame(width: 78, height: 78)
+                        }
+                        Rectangle().fill(.white.opacity(0.15)).frame(width: 1.5, height: 56).padding(.horizontal, 4)
+                        Image(nsImage: icon(shelf.browser, tint: shelf.browser == "Dia" ? shelf.tint : nil))
+                            .resizable().frame(width: 78, height: 78)
+                    }
+                    .padding(.horizontal, 18).padding(.vertical, 14)
+                    .background(RoundedRectangle(cornerRadius: 26, style: .continuous).fill(.white.opacity(0.07)))
+                    .overlay(RoundedRectangle(cornerRadius: 26, style: .continuous).stroke(shelf.color.opacity(0.65), lineWidth: 1.5))
+                    .shadow(color: shelf.color.opacity(0.45), radius: 30)
+                }
+                .offset(x: CGFloat(i) * 46)
+            }
+            HStack(spacing: 8) {
+                Image(systemName: "sparkles").foregroundStyle(.white.opacity(0.45))
+                Text("Same apps. Separate logins. Every link lands in the right universe.")
+                    .foregroundStyle(.white.opacity(0.55))
+            }
+            .font(.system(size: 15, weight: .medium))
+            .padding(.top, 4)
+        }
     }
 }
 
