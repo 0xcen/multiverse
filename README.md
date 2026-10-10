@@ -54,7 +54,7 @@ Multiverse opens at login from then on; switch that off with **Open at login** i
 
 ## How it works
 
-https://github.com/user-attachments/assets/ab4d2534-d082-4310-9f05-c4e119b3041d
+https://github.com/user-attachments/assets/c994feac-b197-4ad8-ab30-9d4248119ffe
 
 ### Copies
 
