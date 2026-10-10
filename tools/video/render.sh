@@ -19,7 +19,9 @@ j = json.loads(re.search(r'\{[^{}]*\}', sys.stdin.read(), re.S).group(0))
 print('loudnorm=I=-16:TP=-2:LRA=11:linear=true:measured_I={input_i}:measured_TP={input_tp}:measured_LRA={input_lra}:measured_thresh={input_thresh}:offset={target_offset}'.format(**j))"
 }
 "$BIN" frames "$WORK/frames"
-"$BIN" audio "$WORK/sound.wav"
+"$BIN" audio "$WORK/sound-1x.wav"
+# The film plays at `speed`; speed the sound up to match without changing its pitch.
+ffmpeg -loglevel error -y -i "$WORK/sound-1x.wav" -af "atempo=$("$BIN" speed)" "$WORK/sound.wav"
 ffmpeg -loglevel error -y -framerate 30 -i "$WORK/frames/%04d.png" -i "$WORK/sound.wav" \
   -c:v libx264 -preset slow -crf 18 -profile:v high -level 5.1 -pix_fmt yuv420p -vf "setsar=1" \
   -af "$(loudnorm_filter "$WORK/sound.wav"),alimiter=limit=0.75:level=false" -ar 48000 -c:a aac -b:a 192k -shortest -movflags +faststart "$OUT"

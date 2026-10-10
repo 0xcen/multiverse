@@ -30,6 +30,12 @@ Helpers in `Pieces.swift`; use them rather than linear moves.
 - **Exaggeration**: bigger overshoot on the hero moments (the snap, the icon landing), gentler on long moves.
 - **Slow in & out, timing**: `snap`, `ease`, `pop`; small things move fast, windows a little slower.
 
+## Speed
+
+`speed` in `Film.swift` (1.1) plays the whole film faster without touching the timeline: picture time is
+`frame / fps × speed`, and the soundtrack is sped up to match with a pitch-keeping tempo change. Timings in
+`T` and the screenplay below are at 1×.
+
 ## Spec
 
 1920×1080, 30 fps, about 39 s (see `T.duration`), H.264, yuv420p, SAR 1:1, AAC stereo 48 kHz.

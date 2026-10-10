@@ -43,6 +43,8 @@ struct LaunchVideo {
                 print("audio \(T.duration)s")
             case "frames-count":
                 print(frameCount)
+            case "speed":
+                print(speed)
             default:
                 print("usage: launch-video frames <dir> | still <n> <file> | same <n> | audio <file.wav>")
             }

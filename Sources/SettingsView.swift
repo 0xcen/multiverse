@@ -10,7 +10,7 @@ struct SettingsView: View {
     var body: some View {
         NavigationSplitView {
             List(selection: $selection) {
-                Section("Universes") {
+                Section("Your multiverse") {
                     ForEach(store.config.universes) { u in
                         HStack {
                             Text(u.emoji)

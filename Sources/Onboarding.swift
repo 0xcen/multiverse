@@ -396,8 +396,8 @@ private struct UniversesStep: View {
         ScrollView {
             VStack(alignment: .leading, spacing: Space.section) {
                 VStack(alignment: .leading, spacing: Space.label) {
-                    Text("Your universes").font(Brand.heading(34)).tracking(-1)
-                    Text("A universe is one side of your life, with its own browser.")
+                    Text("Your multiverse").font(Brand.heading(34)).tracking(-1)
+                    Text("Your multiverse is made of universes: each one a side of your life, with its own browser.")
                         .foregroundStyle(Brand.muted)
                 }
 
@@ -438,7 +438,7 @@ private struct UniversesStep: View {
 
     private var existing: some View {
         VStack(alignment: .leading, spacing: Space.group) {
-            Text("Your universes").font(Brand.heading(34)).tracking(-1)
+            Text("Your multiverse").font(Brand.heading(34)).tracking(-1)
             Text("Check the browser each universe's links open in. Rename, recolour or add universes in Settings.")
                 .foregroundStyle(Brand.muted).fixedSize(horizontal: false, vertical: true)
             VStack(spacing: 0) {

@@ -3,6 +3,8 @@ import SwiftUI
 // The launch film: one timeline for picture and sound. Read RULES.md first.
 
 let fps = 30.0
+/// Playback speed for the whole film. Picture and sound both follow it (sound via pitch-keeping tempo).
+let speed = 1.1
 
 /// Every beat's start, in seconds. Picture and sound both read these, so they can't drift apart.
 enum T {
@@ -33,8 +35,8 @@ enum T {
     static let split = intro + 0.3, invert = intro + 0.62
     static let menuOpen = menu + 0.42
     static let hoverSlack = menu + 1.6, hoverPersonal = menu + 2.3
-    static let morphEnd = gather + 1.0
-    static let plateLand = gather + 1.32
+    static let morphEnd = gather + 0.95   // nodes have become panes
+    static let plateLand = gather + 1.22  // the plate lands behind them
 }
 
 /// When things happen inside a route beat. `k` < 1 plays it faster.
@@ -69,11 +71,11 @@ enum Lane: CaseIterable {
     private var index: Int { Lane.allCases.firstIndex(of: self)! }
 }
 
-let frameCount = Int((fps * T.duration).rounded())
+let frameCount = Int((fps * T.duration / speed).rounded())
 
 struct Frame: View {
     let n: Int
-    var t: Double { Double(n) / fps }
+    var t: Double { Double(n) / fps * speed }
 
     var body: some View {
         ZStack(alignment: .topLeading) {
@@ -411,51 +413,77 @@ struct Frame: View {
         .opacity(appear)
     }
 
-    private func routeRow(y: CGFloat, lane: Lane, draw: Double = 1) -> some View {
+    private func routeRow(y: CGFloat, lane: Lane, draw: Double = 1, collapse: Double = 0, showNode: Bool = true) -> some View {
         // Fixed columns: app tile, node (one width for all), browser tile; labels start after the browser
         // tile, so long names never shift the tiles. Lines run exactly edge to edge.
         let appX: CGFloat = 400, nodeX: CGFloat = 960, browserX: CGFloat = 1500, tile: CGFloat = 120, nodeW: CGFloat = 320
+        // collapse 0→1: the lines pull back into the node and the tiles slide in after them.
+        let c = CGFloat(collapse)
+        let inL = mix(appX, nodeX - nodeW / 2, Double(c)), inR = mix(browserX, nodeX + nodeW / 2, Double(c))
         return ZStack(alignment: .topLeading) {
-            Route(from: CGPoint(x: appX + tile / 2 + 12, y: y), to: CGPoint(x: nodeX - nodeW / 2 - 12, y: y), progress: draw, pulse: false)
-            Route(from: CGPoint(x: nodeX + nodeW / 2 + 12, y: y), to: CGPoint(x: browserX - tile / 2 - 12, y: y), progress: draw, pulse: false)
-            Tile(app: lane.app, ivory: lane.ivory, size: tile).position(x: appX, y: y)
-            Node(name: lane.node, dot: lane.dot, width: nodeW).position(x: nodeX, y: y)
-            Tile(app: lane.browser, ivory: lane.ivory, size: tile).position(x: browserX, y: y)
+            Route(from: CGPoint(x: inL + tile / 2 * (1 - c) + 12, y: y), to: CGPoint(x: nodeX - nodeW / 2 - 12, y: y), progress: draw, pulse: false)
+                .opacity(1 - collapse)
+            Route(from: CGPoint(x: nodeX + nodeW / 2 + 12, y: y), to: CGPoint(x: inR - tile / 2 * (1 - c) - 12, y: y), progress: draw, pulse: false)
+                .opacity(1 - collapse)
+            Tile(app: lane.app, ivory: lane.ivory, size: tile).scaleEffect(1 - 0.5 * c).opacity(1 - collapse).position(x: inL, y: y)
+            if showNode { Node(name: lane.node, dot: lane.dot, width: nodeW).position(x: nodeX, y: y) }
+            Tile(app: lane.browser, ivory: lane.ivory, size: tile).scaleEffect(1 - 0.5 * c).opacity(1 - collapse).position(x: inR, y: y)
             Text(lane.browserLabel).font(.system(size: 30)).foregroundStyle(Carbon.ivory).fixedSize()
                 .frame(width: 360, alignment: .leading)
                 .position(x: browserX + tile / 2 + 24 + 180, y: y)
+                .opacity(1 - min(1, collapse * 2.5))
         }
     }
 
-    // Snappy: rows clear in 0.3 s, become panes in under a second, the plate lands with a bounce.
+    // The fold: lines pull back into their nodes, the three nodes become the icon's panes (Personal the
+    // ivory one; Work and Side project merge into the gray one), then the plate pops in behind.
+    // Everything stays opaque, so nothing double-exposes.
     private var gatherIntoIcon: some View {
-        let fadeRows = prog(t, T.gather, T.gather + 0.3)
-        let morph = anticipate(prog(t, T.gather + 0.05, T.morphEnd), back: 1.1)
-        let plate = pop(prog(t, T.morphEnd - 0.05, T.plateLand))
+        let collapse = ease(prog(t, T.gather, T.gather + 0.35))
+        let caption = 1 - prog(t, T.gather, T.gather + 0.2)
+        let morph = ease(prog(t, T.gather + 0.25, T.morphEnd))
+        let labels = 1 - prog(t, T.gather + 0.22, T.gather + 0.42)
+        let plate = pop(prog(t, T.morphEnd - 0.08, T.plateLand))
+        let land = squash(t - T.plateLand, amount: 0.14)
         let iconSize: CGFloat = 300
         let center = CGPoint(x: 960, y: 500)
         let unit = iconSize * 36 / 1024
         func iconPoint(_ p: CGPoint) -> CGPoint { CGPoint(x: center.x + (p.x - 10.5) * unit, y: center.y + (p.y - 11.5) * unit) }
-        func rectCorners(_ r: CGRect) -> [CGPoint] {
-            [CGPoint(x: r.minX, y: r.maxY), CGPoint(x: r.minX, y: r.minY), CGPoint(x: r.maxX, y: r.minY), CGPoint(x: r.maxX, y: r.maxY)]
+        func pill(_ y: CGFloat) -> [CGPoint] {  // the node's outline, as four corners
+            [CGPoint(x: 800, y: y + 32), CGPoint(x: 800, y: y - 32), CGPoint(x: 1120, y: y - 32), CGPoint(x: 1120, y: y + 32)]
         }
-        // Work and Side project fold into the gray pane, Personal into the ivory one.
-        let workRow = CGRect(x: 320, y: 270, width: 1320, height: 160), personalRow = CGRect(x: 320, y: 480, width: 1320, height: 160)
-        let sideRow = CGRect(x: 320, y: 690, width: 1320, height: 160)
-        let back = zip(rectCorners(workRow), Panes.corners(front: false).map(iconPoint)).map { mix($0, $1, morph) }
-        let side = zip(rectCorners(sideRow), Panes.corners(front: false).map(iconPoint)).map { mix($0, $1, morph) }
-        let front = zip(rectCorners(personalRow), Panes.corners(front: true).map(iconPoint)).map { mix($0, $1, morph) }
-        let land = squash(t - T.plateLand, amount: 0.16)
+        func pane(from y: CGFloat, front: Bool) -> [CGPoint] {
+            zip(pill(y), Panes.corners(front: front).map(iconPoint)).map { mix($0, $1, morph) }
+        }
+        let rows = Array(Lane.allCases.enumerated())
         return ZStack(alignment: .topLeading) {
-            bothRoutes.opacity(1 - fadeRows)
+            ForEach(rows, id: \.offset) { i, lane in
+                routeRow(y: 350 + CGFloat(i) * 210, lane: lane, collapse: collapse, showNode: false)
+            }
+            Caption(text: "Every link in its own universe.", opacity: caption).position(x: 960, y: 170)
             ZStack(alignment: .topLeading) {
-            RoundedRectangle(cornerRadius: iconSize * 210 / 1024, style: .continuous)
-                .fill(Carbon.graphite)
-                .frame(width: iconSize * 928 / 1024, height: iconSize * 928 / 1024)
-                .position(center).opacity(min(1, plate * 3)).scaleEffect(mix(0.6, 1, plate))
-            Quad(points: front).fill(Carbon.ivory.opacity(mix(0.1, 1, morph)))
-            Quad(points: side).fill(Carbon.gray.opacity(mix(0.1, 1, morph)))
-            Quad(points: back).fill(Carbon.gray.opacity(mix(0.1, 1, morph)))
+                RoundedRectangle(cornerRadius: iconSize * 210 / 1024, style: .continuous)
+                    .fill(Carbon.graphite)
+                    .frame(width: iconSize * 928 / 1024, height: iconSize * 928 / 1024)
+                    .position(center).opacity(min(1, plate * 3)).scaleEffect(mix(0.6, 1, plate))
+                ZStack {
+                    Quad(points: pane(from: 560, front: true)).fill(Carbon.panel)
+                    Quad(points: pane(from: 560, front: true)).fill(Carbon.ivory).opacity(prog(morph, 0.3, 0.8))
+                }
+                ZStack {
+                    Quad(points: pane(from: 770, front: false)).fill(Carbon.panel)
+                    Quad(points: pane(from: 770, front: false)).fill(Carbon.gray).opacity(prog(morph, 0.3, 0.8))
+                }
+                ZStack {
+                    Quad(points: pane(from: 350, front: false)).fill(Carbon.panel)
+                    Quad(points: pane(from: 350, front: false)).fill(Carbon.gray).opacity(prog(morph, 0.3, 0.8))
+                }
+                // The real node pills sit on top at first, then fade as their shapes become panes.
+                ForEach(rows, id: \.offset) { i, lane in
+                    Node(name: lane.node, dot: lane.dot, width: 320)
+                        .opacity(labels)
+                        .position(x: 960, y: 350 + CGFloat(i) * 210)
+                }
             }
             .frame(width: stage.width, height: stage.height)
             .scaleEffect(x: land.width, y: land.height, anchor: UnitPoint(x: 0.5, y: (500 + 136) / 1080))
