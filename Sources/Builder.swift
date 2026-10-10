@@ -1,0 +1,396 @@
+import AppKit
+
+enum BuildError: LocalizedError {
+    case running(String), missingSource(String), tool(String), notOurs(String), systemApp
+    var errorDescription: String? {
+        switch self {
+        case .notOurs(let p): "\(p) already exists and wasn't made by Multiverse. Pick another name."
+        case .systemApp: "Apps in /System can't be cloned (macOS won't launch re-signed system apps)."
+        case .running(let n): "Quit \(n) first, then update it."
+        case .missingSource(let p): "Source app not found: \(p)"
+        case .tool(let msg): msg
+        }
+    }
+}
+
+extension FileManager {
+    func isRunning(_ app: URL) -> Bool {
+        NSWorkspace.shared.runningApplications.contains { $0.bundleURL?.standardizedFileURL == app.standardizedFileURL }
+    }
+}
+
+/// Creates the bundles for `clone` and `launcher` entries in /Applications.
+enum Builder {
+    /// Unique, valid bundle id for a new copy: ASCII slug of the name plus a random suffix, so
+    /// "Work Slack" and "Work-Slack" (or an all-emoji name) never collide with each other or Multiverse.
+    static func defaultBundleID(for name: String) -> String {
+        let slug = String(name.lowercased().unicodeScalars.filter { ("a"..."z").contains($0) || ("0"..."9").contains($0) }.prefix(30))
+        let suffix = UUID().uuidString.prefix(6).lowercased()
+        return "io.github.0xcen.multiverse.copy.\(slug.isEmpty ? "app" : slug)-\(suffix)"
+    }
+
+    /// Info.plist key stamped into every app Multiverse builds, holding the entry's id. Only bundles
+    /// carrying the matching stamp are ever replaced or moved to the Trash.
+    static let ownerKey = "MultiverseCopyOf"
+
+    static func isOurCopy(at url: URL, of entry: AppEntry) -> Bool {
+        guard let info = NSDictionary(contentsOf: url.appendingPathComponent("Contents/Info.plist")) else { return false }
+        return info[ownerKey] as? String == entry.id.uuidString
+    }
+
+    /// True for apps that accept `--user-data-dir` (Electron apps and Chromium-based browsers), so a copy
+    /// can keep its own logins with no setup.
+    static func supportsProfiles(_ app: URL) -> Bool {
+        let frameworks = (try? FileManager.default.contentsOfDirectory(
+            atPath: app.appendingPathComponent("Contents/Frameworks").path)) ?? []
+        return frameworks.contains { f in
+            ["Electron Framework", "Chrom", "Browser Framework", "Chrome Framework", "Edge Framework",
+             "Vivaldi Framework", "ArcCore"].contains { f.contains($0) }
+        }
+    }
+
+    /// Apps registered to open web links.
+    static func isBrowser(_ app: URL) -> Bool {
+        NSWorkspace.shared.urlsForApplications(toOpen: URL(string: "https://example.com")!)
+            .contains { $0.standardizedFileURL == app.standardizedFileURL }
+    }
+
+    /// Where a copy keeps its data when the app supports profiles.
+    static func defaultDataDir(for name: String) -> String { "~/Library/Application Support/Multiverse/\(name)" }
+
+    /// Creates the entry's app, or updates a copy Multiverse made earlier. Never touches an app it
+    /// didn't make, and never touches app data (that lives in ~/Library, not in the app).
+    /// The new app is built next to the old one first; the old one goes to the Trash only once the
+    /// new one is ready. Returns the entry with its bundle id / data folder filled in.
+    static func build(_ entry: AppEntry, tint: NSColor? = nil) throws -> AppEntry {
+        var entry = entry
+        if entry.kind == .original { return entry }
+        if let problem = AppEntry.nameProblem(entry.name) { throw BuildError.tool(problem) }
+        // One build at a time across the menu bar app and the command line.
+        let lock = open(Config.url.deletingLastPathComponent().appendingPathComponent(".build.lock").path,
+                        O_CREAT | O_RDWR, 0o644)
+        guard lock >= 0, flock(lock, LOCK_EX | LOCK_NB) == 0 else {
+            if lock >= 0 { close(lock) }
+            throw BuildError.tool("Another copy is being built right now. Try again in a moment.")
+        }
+        defer { flock(lock, LOCK_UN); close(lock) }
+        removeLeftoverStaging()
+        if entry.kind == .clone, isBrowser(URL(fileURLWithPath: expand(entry.sourcePath))) {
+            // Browsers keep their own bundle id: some (Dia) hand off to the running original instead
+            // of starting when the id differs. Copies are still told apart by path and owner marker.
+            entry.bundleID = Bundle(url: URL(fileURLWithPath: expand(entry.sourcePath)))?.bundleIdentifier
+        } else if entry.bundleID?.isEmpty ?? true {
+            entry.bundleID = defaultBundleID(for: entry.name)
+        }
+        let fm = FileManager.default
+        let src = URL(fileURLWithPath: expand(entry.sourcePath))
+        guard fm.fileExists(atPath: src.path) else { throw BuildError.missingSource(src.path) }
+        if entry.kind == .clone, src.path.hasPrefix("/System/") { throw BuildError.systemApp }
+        if entry.kind == .clone, entry.dataDir == nil, entry.env.isEmpty, supportsProfiles(src) {
+            entry.dataDir = defaultDataDir(for: entry.name)
+        }
+
+        let dest = URL(fileURLWithPath: entry.installedPath)
+        guard dest.deletingLastPathComponent().path == "/Applications" else { throw BuildError.tool("Copies go straight into /Applications.") }
+        if fm.fileExists(atPath: dest.path) {
+            if dest.standardizedFileURL == src.standardizedFileURL || !isOurCopy(at: dest, of: entry) {
+                throw BuildError.notOurs(dest.path)
+            }
+            if fm.isRunning(dest) { throw BuildError.running(entry.name) }
+        }
+
+        let staging = dest.deletingLastPathComponent()
+            .appendingPathComponent(".\(entry.name).multiverse-\(UUID().uuidString.prefix(8)).app")
+        defer { try? fm.removeItem(at: staging) }
+        switch entry.kind {
+        case .original: return entry
+        case .clone: try buildClone(entry, from: src, to: staging, tint: tint)
+        case .launcher: try buildLauncher(entry, from: src, to: staging, tint: tint)
+        }
+        if fm.fileExists(atPath: dest.path) {
+            // Check again: the build takes a few seconds and the copy may have been opened meanwhile.
+            guard isOurCopy(at: dest, of: entry) else { throw BuildError.notOurs(dest.path) }
+            if fm.isRunning(dest) { throw BuildError.running(entry.name) }
+            try fm.trashItem(at: dest, resultingItemURL: nil)
+        }
+        try fm.moveItem(at: staging, to: dest)
+
+        try run("/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister",
+                ["-f", dest.path])
+        Log.write("built \(entry.kind.rawValue) \(dest.path)")
+        return entry
+    }
+
+    /// Half-built copies left behind when a build was interrupted (e.g. Multiverse quit mid-build).
+    /// Only called while holding the build lock, so no build is using them.
+    private static func removeLeftoverStaging() {
+        let fm = FileManager.default
+        for item in (try? fm.contentsOfDirectory(atPath: "/Applications")) ?? []
+        where item.hasPrefix(".") && item.contains(".multiverse-") && item.hasSuffix(".app") {
+            let url = URL(fileURLWithPath: "/Applications").appendingPathComponent(item)
+            do { try fm.trashItem(at: url, resultingItemURL: nil) } catch { Log.write("couldn't remove \(item): \(error)") }
+        }
+    }
+
+    /// Version of the app a copy was made from vs. the original now, when they differ.
+    static func updateAvailable(_ entry: AppEntry) -> String? {
+        guard entry.kind == .clone,
+              let made = Bundle(url: URL(fileURLWithPath: entry.installedPath))?.infoDictionary?["CFBundleShortVersionString"] as? String,
+              let now = Bundle(url: URL(fileURLWithPath: expand(entry.sourcePath)))?.infoDictionary?["CFBundleShortVersionString"] as? String,
+              made != now else { return nil }
+        return now
+    }
+
+    // MARK: clone
+
+    private static let launchScript = "multiverse-launch"
+
+    private static func buildClone(_ entry: AppEntry, from src: URL, to dest: URL, tint: NSColor?) throws {
+        let fm = FileManager.default
+        try fm.copyItem(at: src, to: dest)  // APFS clone: near-zero extra disk
+
+        let plistURL = dest.appendingPathComponent("Contents/Info.plist")
+        var plist = try PropertyListSerialization.propertyList(
+            from: Data(contentsOf: plistURL), format: nil) as? [String: Any] ?? [:]
+        // CFBundleName stays: Electron uses it to find its helper apps.
+        plist["CFBundleDisplayName"] = entry.name
+        plist["CFBundleIdentifier"] = entry.bundleID
+        plist[ownerKey] = entry.id.uuidString
+        if !isBrowser(src) {
+            plist.removeValue(forKey: "CFBundleURLTypes")  // leave custom URL schemes with the original
+        }
+        if !entry.env.isEmpty {
+            var env = plist["LSEnvironment"] as? [String: String] ?? [:]
+            for (k, v) in entry.env { env[k] = expand(v) }
+            plist["LSEnvironment"] = env
+        }
+        // Separate logins: start the real binary with its own --user-data-dir. The process still lives
+        // inside this bundle, so it keeps its own name and Dock icon.
+        var nested: [URL] = []
+        if let dataDir = entry.dataDir, let exe = plist["CFBundleExecutable"] as? String {
+            let script = dest.appendingPathComponent("Contents/MacOS/\(launchScript)")
+            try """
+            #!/bin/bash
+            exec "$(dirname "$0")"/\(shellQuote(exe)) --user-data-dir=\(shellQuote(expand(dataDir))) "$@"
+
+            """.write(to: script, atomically: true, encoding: .utf8)
+            try fm.setAttributes([.posixPermissions: 0o755], ofItemAtPath: script.path)
+            plist["CFBundleExecutable"] = launchScript
+            nested.append(dest.appendingPathComponent("Contents/MacOS/\(exe)"))
+        }
+        if entry.icon != .original {
+            plist.removeValue(forKey: "CFBundleIconName")  // an asset-catalog icon would win over the .icns
+            let iconFile = plist["CFBundleIconFile"] as? String ?? "AppIcon"
+            plist["CFBundleIconFile"] = iconFile
+            let name = iconFile.hasSuffix(".icns") ? iconFile : iconFile + ".icns"
+            try Icons.write(Icons.make(for: src, style: entry.icon, tint: tint),
+                            to: dest.appendingPathComponent("Contents/Resources/\(name)"))
+        }
+        try PropertyListSerialization.data(fromPropertyList: plist, format: .xml, options: 0).write(to: plistURL)
+        try renameLocalizations(in: dest, to: entry.name)
+
+        // Re-sign ad hoc (editing Info.plist breaks the original signature), keeping entitlements and
+        // the hardened runtime, so things like DYLD_INSERT_LIBRARIES injection stay blocked. Library
+        // validation is relaxed because the copy is signed for this Mac while its frameworks still
+        // carry the original developer's signature.
+        let ents = fm.temporaryDirectory.appendingPathComponent("mv-ents-\(UUID().uuidString).plist")
+        defer { try? fm.removeItem(at: ents) }
+        var dict: [String: Any] = [:]
+        if let xml = try? run("/usr/bin/codesign", ["-d", "--entitlements", ":-", src.path]),
+           let data = xml.data(using: .utf8),
+           let original = try? PropertyListSerialization.propertyList(from: data, format: nil) as? [String: Any] {
+            // Entitlements tied to Apple's or the vendor's signing identity make an ad-hoc binary
+            // refuse to launch; drop them and keep the rest (JIT, camera, mic, Apple Events…).
+            dict = original.filter { key, _ in !restrictedEntitlementPrefixes.contains { key.hasPrefix($0) } }
+        }
+        dict["com.apple.security.cs.disable-library-validation"] = true
+        try PropertyListSerialization.data(fromPropertyList: dict, format: .xml, options: 0).write(to: ents)
+        let signArgs = ["--force", "-s", "-", "--options", "runtime", "--entitlements", ents.path]
+        try? fm.removeItem(at: dest.appendingPathComponent("Contents/embedded.provisionprofile"))
+        // Extended attributes (Finder info, resource forks) in some apps, e.g. Arc, make codesign refuse.
+        try run("/usr/bin/xattr", ["-cr", dest.path])
+        for binary in nested { try run("/usr/bin/codesign", signArgs + [binary.path]) }
+        try run("/usr/bin/codesign", signArgs + [dest.path])
+    }
+
+    /// Localized InfoPlist.strings override CFBundleDisplayName, so the clone would still show the
+    /// original's name in Finder and the Dock. Point them at the new name too.
+    private static func renameLocalizations(in bundle: URL, to name: String) throws {
+        let res = bundle.appendingPathComponent("Contents/Resources")
+        let lprojs = (try? FileManager.default.contentsOfDirectory(at: res, includingPropertiesForKeys: nil)) ?? []
+        for lproj in lprojs where lproj.pathExtension == "lproj" {
+            let strings = lproj.appendingPathComponent("InfoPlist.strings")
+            guard let data = try? Data(contentsOf: strings),
+                  var dict = try? PropertyListSerialization.propertyList(from: data, format: nil) as? [String: Any],
+                  dict["CFBundleDisplayName"] != nil || dict["CFBundleName"] != nil else { continue }
+            dict["CFBundleDisplayName"] = name
+            dict.removeValue(forKey: "CFBundleName")  // keep the internal name (Electron helper lookup)
+            try PropertyListSerialization.data(fromPropertyList: dict, format: .binary, options: 0).write(to: strings)
+        }
+    }
+
+    private static let restrictedEntitlementPrefixes = [
+        "com.apple.private.", "com.apple.developer.", "com.apple.application-identifier",
+        "keychain-access-groups", "com.apple.security.application-groups", "platform-application",
+    ]
+
+    // MARK: launcher
+
+    private static func buildLauncher(_ entry: AppEntry, from src: URL, to dest: URL, tint: NSColor?) throws {
+        let fm = FileManager.default
+        guard let exe = Bundle(url: src)?.executableURL?.path else { throw BuildError.missingSource(src.path) }
+        guard let dataDir = entry.dataDir, !dataDir.isEmpty else {
+            throw BuildError.tool("A launcher needs a data directory.")
+        }
+        let contents = dest.appendingPathComponent("Contents")
+        try fm.createDirectory(at: contents.appendingPathComponent("MacOS"), withIntermediateDirectories: true)
+        try fm.createDirectory(at: contents.appendingPathComponent("Resources"), withIntermediateDirectories: true)
+
+        // Focus the running profile if there is one, otherwise start it.
+        let script = """
+        #!/bin/bash
+        EXE=\(shellQuote(exe))
+        DATA_DIR=\(shellQuote(expand(dataDir)))
+        PID=$(pgrep -of \(shellQuote("^" + regexEscape(exe) + " --user-data-dir=" + regexEscape(expand(dataDir)) + "( |$)")))
+        if [ -n "$PID" ] && osascript -e "tell application \\"System Events\\" to set frontmost of (first process whose unix id is $PID) to true" 2>/dev/null; then
+          exit 0
+        fi
+        exec "$EXE" --user-data-dir="$DATA_DIR" "$@"
+
+        """
+        let launcher = contents.appendingPathComponent("MacOS/Launcher")
+        try script.write(to: launcher, atomically: true, encoding: .utf8)
+        try fm.setAttributes([.posixPermissions: 0o755], ofItemAtPath: launcher.path)
+
+        try Icons.write(Icons.make(for: src, style: entry.icon, tint: tint),
+                        to: contents.appendingPathComponent("Resources/app.icns"))
+        let plist: [String: Any] = [
+            "CFBundleName": entry.name,
+            "CFBundleDisplayName": entry.name,
+            "CFBundleIdentifier": entry.bundleID ?? defaultBundleID(for: entry.name),
+            "CFBundleExecutable": "Launcher",
+            "CFBundleIconFile": "app.icns",
+            "CFBundlePackageType": "APPL",
+            "CFBundleShortVersionString": "1.0",
+            "CFBundleVersion": "1",
+            "NSHighResolutionCapable": true,
+            ownerKey: entry.id.uuidString,
+            "NSAppleEventsUsageDescription": "Brings the already-running \(entry.name) window to the front.",
+        ]
+        try PropertyListSerialization.data(fromPropertyList: plist, format: .xml, options: 0)
+            .write(to: contents.appendingPathComponent("Info.plist"))
+        try run("/usr/bin/xattr", ["-cr", dest.path])
+        try run("/usr/bin/codesign", ["--force", "-s", "-", dest.path])
+    }
+
+    // MARK: helpers
+
+    /// Escapes a literal for pgrep's extended regex.
+    private static func regexEscape(_ s: String) -> String {
+        var out = ""
+        for c in s { if "\\^$.|?*+()[]{}".contains(c) { out.append("\\") }; out.append(c) }
+        return out
+    }
+
+    private static func shellQuote(_ s: String) -> String { "'" + s.replacingOccurrences(of: "'", with: "'\\''") + "'" }
+
+    @discardableResult
+    static func run(_ tool: String, _ args: [String]) throws -> String {
+        let p = Process(), out = Pipe(), err = Pipe()
+        p.executableURL = URL(fileURLWithPath: tool)
+        p.arguments = args
+        p.standardOutput = out
+        p.standardError = err
+        try p.run()
+        let o = out.fileHandleForReading.readDataToEndOfFile()
+        let e = err.fileHandleForReading.readDataToEndOfFile()
+        p.waitUntilExit()
+        guard p.terminationStatus == 0 else {
+            throw BuildError.tool("\((tool as NSString).lastPathComponent) failed: \(String(decoding: e, as: UTF8.self))")
+        }
+        return String(decoding: o, as: UTF8.self)
+    }
+}
+
+/// App icons: read any app's icon, optionally invert it, write an .icns.
+enum Icons {
+    static func make(for app: URL, style: IconStyle, tint: NSColor? = nil, size: Int = 1024) -> NSImage {
+        let icon = NSWorkspace.shared.icon(forFile: app.path)
+        switch style {
+        case .original: return icon
+        case .invert: return invert(icon, size: size)
+        case .tint: return self.tint(icon, with: tint ?? .systemBlue, size: size)
+        }
+    }
+
+    /// Recolours the icon in one hue: shadows go dark, mid-tones take the colour, highlights go pale.
+    static func tint(_ image: NSImage, with color: NSColor, size: Int = 1024) -> NSImage {
+        guard let rep = bitmap(image, size: size), let data = rep.bitmapData,
+              let c = color.usingColorSpace(.deviceRGB) else { return image }
+        let tint = [Float(c.redComponent), Float(c.greenComponent), Float(c.blueComponent)]
+        for i in 0..<(rep.pixelsWide * rep.pixelsHigh) {
+            let p = data + i * 4, a = Float(p[3])
+            guard a > 0 else { continue }
+            let r = Float(p[0]) / a, g = Float(p[1]) / a, b = Float(p[2]) / a
+            let lum = 0.299 * r + 0.587 * g + 0.114 * b
+            let base = min(1, lum * 1.6)           // black → colour
+            let pale = max(0, (lum - 0.75) / 0.25)  // colour → white in highlights
+            for ch in 0..<3 {
+                let v = tint[ch] * base * (1 - pale * 0.7) + pale * 0.7
+                p[ch] = UInt8(max(0, min(a, v * a)))
+            }
+        }
+        let out = NSImage(size: NSSize(width: size, height: size))
+        out.addRepresentation(rep)
+        return out
+    }
+
+    /// Inverts colour and keeps alpha, so transparent corners stay transparent.
+    static func invert(_ image: NSImage, size: Int = 1024) -> NSImage {
+        guard let rep = bitmap(image, size: size), let data = rep.bitmapData else { return image }
+        let count = rep.pixelsWide * rep.pixelsHigh
+        for i in 0..<count {
+            // Premultiplied, so fully inverted is `a - c`. Blend by alpha³ so soft drop shadows
+            // stay dark instead of turning into a white halo.
+            let p = data + i * 4, a = Float(p[3])
+            let t = (a / 255) * (a / 255) * (a / 255)
+            for c in 0..<3 {
+                let v = Float(p[c])
+                p[c] = UInt8(max(0, min(a, v + t * (a - 2 * v))))
+            }
+        }
+        let out = NSImage(size: NSSize(width: size, height: size))
+        out.addRepresentation(rep)
+        return out
+    }
+
+    /// Premultiplied RGBA bitmap of `image` at `size`×`size`.
+    static func bitmap(_ image: NSImage, size: Int) -> NSBitmapImageRep? {
+        guard let rep = NSBitmapImageRep(
+            bitmapDataPlanes: nil, pixelsWide: size, pixelsHigh: size, bitsPerSample: 8, samplesPerPixel: 4,
+            hasAlpha: true, isPlanar: false, colorSpaceName: .deviceRGB,
+            bitmapFormat: [], bytesPerRow: size * 4, bitsPerPixel: 32) else { return nil }
+        NSGraphicsContext.saveGraphicsState()
+        NSGraphicsContext.current = NSGraphicsContext(bitmapImageRep: rep)
+        image.draw(in: NSRect(x: 0, y: 0, width: size, height: size))
+        NSGraphicsContext.restoreGraphicsState()
+        return rep
+    }
+
+    static func write(_ image: NSImage, to icns: URL) throws {
+        let fm = FileManager.default
+        let set = fm.temporaryDirectory.appendingPathComponent("mv-\(UUID().uuidString).iconset")
+        try fm.createDirectory(at: set, withIntermediateDirectories: true)
+        defer { try? fm.removeItem(at: set) }
+        for base in [16, 32, 128, 256, 512] {
+            for scale in [1, 2] {
+                let px = base * scale
+                guard let png = bitmap(image, size: px)?.representation(using: .png, properties: [:]) else { continue }
+                let name = scale == 1 ? "icon_\(base)x\(base).png" : "icon_\(base)x\(base)@2x.png"
+                try png.write(to: set.appendingPathComponent(name))
+            }
+        }
+        if fm.fileExists(atPath: icns.path) { try fm.removeItem(at: icns) }
+        try Builder.run("/usr/bin/iconutil", ["-c", "icns", set.path, "-o", icns.path])
+    }
+}
