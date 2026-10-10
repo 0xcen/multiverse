@@ -391,7 +391,7 @@ struct BrowserPicker: View {
             } label: {
                 HStack {
                     Image(nsImage: appIcon(target.appPath, size: 18))
-                    Text(options.first { $0.target == target }?.label ?? label(for: target))
+                    Text(options.first { normalized($0.target) == normalized(target) }?.label ?? label(for: target))
                 }
             }
             .fixedSize()
@@ -414,6 +414,10 @@ struct BrowserPicker: View {
 
     private struct Option { let target: BrowserTarget; let label: String }
 
+    private func normalized(_ t: BrowserTarget) -> BrowserTarget {
+        BrowserTarget(appPath: expand(t.appPath), dataDir: t.dataDir.map(expand))
+    }
+
     private func label(for t: BrowserTarget) -> String {
         guard let dir = t.dataDir else { return appName(t.appPath) }
         let profile = store.config.apps.first { $0.kind == .launcher && $0.dataDir.map(expand) == expand(dir) }?.name
@@ -434,8 +438,12 @@ struct BrowserPicker: View {
             }
         }
         targets += store.config.universes.map(\.browser)
+        let profiles = existingProfiles()
+        targets += profiles.map(\.target)
         var seen = Set<BrowserTarget>()
-        return targets.filter { seen.insert($0).inserted }.map { Option(target: $0, label: label(for: $0)) }
+        return targets.filter { seen.insert(normalized($0)).inserted }.map { t in
+            Option(target: t, label: profiles.first { normalized($0.target) == normalized(t) }?.name ?? label(for: t))
+        }
     }
 
     private func chooseProfileFolder() {
@@ -451,12 +459,71 @@ struct BrowserPicker: View {
     }
 }
 
+/// Browsers installed as apps: one per bundle id, only from the Applications folders (not test builds
+/// in caches), and not background link routers (Multiverse itself, Finicky, Velja…).
 func installedBrowsers() -> [URL] {
     let me = Bundle.main.bundleURL.standardizedFileURL
-    return NSWorkspace.shared.urlsForApplications(toOpen: URL(string: "https://example.com")!)
-        .map(\.standardizedFileURL)
-        .filter { $0 != me && Bundle(url: $0)?.bundleIdentifier != "io.github.0xcen.multiverse" }
-        .sorted { appName($0.path) < appName($1.path) }
+    let roots = ["/Applications/", "/System/Applications/", "/System/Volumes/Preboot/Cryptexes/App/System/Applications/",
+                 NSHomeDirectory() + "/Applications/"]
+    var byID: [String: URL] = [:]
+    for url in NSWorkspace.shared.urlsForApplications(toOpen: URL(string: "https://example.com")!).map(\.standardizedFileURL) {
+        guard url != me, roots.contains(where: { url.path.hasPrefix($0) }),
+              !url.deletingLastPathComponent().path.contains(".app"),  // helpers inside another app
+              let bundle = Bundle(url: url), let id = bundle.bundleIdentifier,
+              id != "io.github.0xcen.multiverse",
+              bundle.infoDictionary?["LSUIElement"] as? Bool != true,
+              bundle.infoDictionary?["LSBackgroundOnly"] as? Bool != true else { continue }
+        // Same app found twice: keep the one in /Applications (copies keep their original id, so key by path then).
+        let key = Bundle(url: url).flatMap { $0.infoDictionary?[Builder.ownerKey] as? String } ?? id
+        if let existing = byID[key], existing.path.hasPrefix("/Applications/") { continue }
+        byID[key] = url
+    }
+    return byID.values.sorted { appName($0.path) < appName($1.path) }
+}
+
+/// A browser profile that's already set up on this Mac: a small launcher app (like a hand-made
+/// "Dia Personal") that starts a browser with its own --user-data-dir.
+struct ExistingProfile: Hashable {
+    let name: String
+    let launcherPath: String
+    let target: BrowserTarget
+}
+
+func existingProfiles() -> [ExistingProfile] {
+    let browsers = installedBrowsers()
+    let home = NSHomeDirectory()
+    var out: [ExistingProfile] = []
+    for dir in ["/Applications", home + "/Applications"] {
+        for item in (try? FileManager.default.contentsOfDirectory(atPath: dir)) ?? [] where item.hasSuffix(".app") {
+            let app = URL(fileURLWithPath: dir).appendingPathComponent(item)
+            guard let exe = Bundle(url: app)?.executableURL,
+                  let size = (try? FileManager.default.attributesOfItem(atPath: exe.path))?[.size] as? Int, size < 16_000,
+                  let script = try? String(contentsOf: exe, encoding: .utf8), script.hasPrefix("#!"),
+                  script.contains("--user-data-dir") else { continue }
+            guard let browser = browsers.first(where: { script.contains($0.path + "/Contents/MacOS/") }) else { continue }
+            // DATA_DIR="…" or --user-data-dir="…"
+            let patterns = [#"DATA_DIR=["']([^"'\n]+)["']"#, #"--user-data-dir=["']([^"'\n]+)["']"#, #"--user-data-dir=([^\s"']+)"#]
+            var dataDir: String?
+            for pattern in patterns {
+                if let r = script.range(of: pattern, options: .regularExpression) {
+                    let match = String(script[r])
+                    if let q = match.firstIndex(where: { $0 == "\"" || $0 == "'" }) ?? match.firstIndex(of: "=").map({ match.index(after: $0) }) {
+                        var value = String(match[match.index(after: q)...])
+                        if let last = value.last, last == "\"" || last == "'" { value.removeLast() }
+                        if match.hasPrefix("--user-data-dir="), !value.hasPrefix("$"), !value.hasPrefix("/") , !value.hasPrefix("~") { continue }
+                        if value.contains("$DATA_DIR") { continue }
+                        dataDir = value
+                        break
+                    }
+                }
+            }
+            guard var dir = dataDir else { continue }
+            dir = dir.replacingOccurrences(of: "$HOME", with: home).replacingOccurrences(of: "${HOME}", with: home)
+            out.append(ExistingProfile(name: appName(app.path), launcherPath: app.path,
+                                       target: BrowserTarget(appPath: browser.path, dataDir: (dir as NSString).abbreviatingWithTildeInPath)))
+        }
+    }
+    return out.sorted { $0.name < $1.name }
 }
 
 

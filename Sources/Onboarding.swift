@@ -190,6 +190,8 @@ private struct Point: View {
         var emoji: String
         var color: String
         var browserPath: String
+        /// An existing profile of that browser (e.g. a hand-made "Dia Personal"), if chosen.
+        var profile: ExistingProfile? = nil
         /// Make a separate copy (or profile) of the browser for this universe.
         var separate: Bool
     }
@@ -246,10 +248,12 @@ private struct Point: View {
     /// Two universes opening links in the very same browser profile defeats the point.
     var sharedBrowserWarning: String? {
         let plain = drafts.filter { !$0.separate }
-        let dupes = Dictionary(grouping: plain, by: \.browserPath).filter { $0.value.count > 1 }
-        guard let (path, ds) = dupes.first else { return nil }
+        let dupes = Dictionary(grouping: plain, by: { $0.browserPath + "|" + ($0.profile?.target.dataDir ?? "") })
+            .filter { $0.value.count > 1 }
+        guard let (_, ds) = dupes.first, let first = ds.first else { return nil }
         let names = ds.map(\.name).joined(separator: " and ")
-        return "\(names) both open links in the same \(appName(path)), so their links won't be kept apart. Turn on “Separate” for one of them."
+        let browser = first.profile?.name ?? appName(first.browserPath)
+        return "\(names) both open links in the same \(browser), so their links won't be kept apart. Pick a different browser or turn on “Separate” for one of them."
     }
 
     func addDraft() {
@@ -263,7 +267,7 @@ private struct Point: View {
         let existing = Set(store.config.universes.map(\.id))
         for d in drafts {
             let u = Universe(id: d.id, name: d.name.trimmingCharacters(in: .whitespaces), emoji: d.emoji,
-                             browser: BrowserTarget(appPath: d.browserPath), color: d.color)
+                             browser: d.profile?.target ?? BrowserTarget(appPath: d.browserPath), color: d.color)
             if existing.contains(d.id), let i = store.config.universes.firstIndex(where: { $0.id == d.id }) {
                 store.config.universes[i] = u
             } else {
@@ -280,7 +284,7 @@ private struct Point: View {
         tasks = []
         let config = store.config
         // Separate browsers
-        for d in drafts where d.separate && fresh {
+        for d in drafts where d.separate && d.profile == nil && fresh {
             guard let u = config.universe(d.id) else { continue }
             let browser = URL(fileURLWithPath: d.browserPath)
             let name = uniqueName("\(u.name) \(appName(browser.path))", in: config)
@@ -416,7 +420,7 @@ private struct DraftCard: View {
 
     var body: some View {
         let browserName = appName(draft.browserPath)
-        let canSeparate = Builder.supportsProfiles(URL(fileURLWithPath: draft.browserPath))
+        let canSeparate = draft.profile == nil && Builder.supportsProfiles(URL(fileURLWithPath: draft.browserPath))
         VStack(alignment: .leading, spacing: 10) {
             HStack(spacing: 10) {
                 EmojiButton(emoji: $draft.emoji)
@@ -436,14 +440,24 @@ private struct DraftCard: View {
                 Text("Links open in").foregroundStyle(.secondary)
                 Menu {
                     ForEach(installedBrowsers(), id: \.self) { b in
-                        Button { draft.browserPath = b.path } label: {
+                        Button { draft.browserPath = b.path; draft.profile = nil } label: {
                             Label { Text(appName(b.path)) } icon: { Image(nsImage: appIcon(b.path, size: 16)) }
+                        }
+                    }
+                    let profiles = existingProfiles()
+                    if !profiles.isEmpty {
+                        Section("Profiles already on this Mac") {
+                            ForEach(profiles, id: \.self) { p in
+                                Button { draft.browserPath = p.target.appPath; draft.profile = p; draft.separate = false } label: {
+                                    Label { Text(p.name) } icon: { Image(nsImage: appIcon(p.launcherPath, size: 16)) }
+                                }
+                            }
                         }
                     }
                 } label: {
                     HStack {
-                        Image(nsImage: appIcon(draft.browserPath, size: 16))
-                        Text(browserName)
+                        Image(nsImage: appIcon(draft.profile?.launcherPath ?? draft.browserPath, size: 16))
+                        Text(draft.profile?.name ?? browserName)
                     }
                 }
                 .fixedSize()
