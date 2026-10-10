@@ -221,18 +221,39 @@ private struct Point: View {
         guard fresh else { return }
         let browser = SetupModel.suggestedBrowser()
         let work = Draft(name: "Work", emoji: "💼", color: Universe.palette[0], browserPath: browser, separate: false)
-        let personal = Draft(name: "Personal", emoji: "🏠", color: Universe.palette[2], browserPath: browser,
-                             separate: Builder.supportsProfiles(URL(fileURLWithPath: browser)))
+        // Reuse a profile that already exists for this browser (e.g. a "Dia Personal"), else make a separate one.
+        let profiles = existingProfiles().filter { expand($0.target.appPath) == expand(browser) }
+        let existing = profiles.first { $0.name.localizedCaseInsensitiveContains("personal") } ?? profiles.first
+        var personal = Draft(name: "Personal", emoji: "🏠", color: Universe.palette[2], browserPath: browser,
+                             separate: existing == nil && Builder.supportsProfiles(URL(fileURLWithPath: browser)))
+        personal.profile = existing
         drafts = [work, personal]
     }
 
-    /// The user's browser before Multiverse, or a sensible installed one.
+    /// The user's own default browser: the current one, the one Multiverse replaced, or the browser
+    /// they used most recently.
     static func suggestedBrowser() -> String {
         let browsers = installedBrowsers()
         if let current = NSWorkspace.shared.urlForApplication(toOpen: URL(string: "https://example.com")!),
            current.standardizedFileURL != Bundle.main.bundleURL.standardizedFileURL,
            browsers.contains(current.standardizedFileURL) {
             return current.path
+        }
+        if let previous = UserDefaults.standard.string(forKey: previousBrowserKey),
+           browsers.contains(where: { $0.path == previous }) {
+            return previous
+        }
+        // Otherwise the browser in use: running ones first, newest preferences file first (browsers
+        // save it constantly while in use).
+        let running = Set(NSWorkspace.shared.runningApplications.compactMap { $0.bundleURL?.standardizedFileURL })
+        let ranked = browsers.compactMap { b -> (URL, Bool, Date)? in
+            guard let id = Bundle(url: b)?.bundleIdentifier, Bundle(url: b)?.infoDictionary?[Builder.ownerKey] == nil else { return nil }
+            let prefs = NSHomeDirectory() + "/Library/Preferences/\(id).plist"
+            let date = (try? FileManager.default.attributesOfItem(atPath: prefs))?[.modificationDate] as? Date ?? .distantPast
+            return (b, running.contains(b), date)
+        }
+        if let best = ranked.max(by: { ($0.1 ? 1 : 0, $0.2) < ($1.1 ? 1 : 0, $1.2) }), best.2 != .distantPast {
+            return best.0.path
         }
         for name in ["Google Chrome", "Arc", "Dia", "Brave Browser", "Microsoft Edge", "Safari"] {
             if let b = browsers.first(where: { appName($0.path) == name }) { return b.path }

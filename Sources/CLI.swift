@@ -114,6 +114,7 @@ enum CLI {
     }
 
     static func makeDefault() -> Int32 {
+        rememberPreviousBrowser()
         let me = URL(fileURLWithPath: "/Applications/Multiverse.app")
         var done = false
         NSWorkspace.shared.setDefaultApplication(at: me, toOpenURLsWithScheme: "http") { _ in

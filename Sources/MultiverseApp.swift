@@ -118,6 +118,7 @@ final class Store: ObservableObject {
     }
 
     func makeDefaultBrowser() {
+        rememberPreviousBrowser()
         let me = Bundle.main.bundleURL
         NSWorkspace.shared.setDefaultApplication(at: me, toOpenURLsWithScheme: "http") { _ in
             NSWorkspace.shared.setDefaultApplication(at: me, toOpenURLsWithScheme: "https") { error in
@@ -242,6 +243,16 @@ let menuBarIcon: NSImage = {
     image.accessibilityDescription = "Multiverse"
     return image
 }()
+
+let previousBrowserKey = "previousDefaultBrowser"
+
+/// Remember the browser Multiverse is about to replace, to suggest it in setup (and to restore it).
+func rememberPreviousBrowser() {
+    guard let current = NSWorkspace.shared.urlForApplication(toOpen: URL(string: "https://example.com")!),
+          Bundle(url: current)?.bundleIdentifier != "io.github.0xcen.multiverse" else { return }
+    UserDefaults(suiteName: "io.github.0xcen.multiverse")?.set(current.path, forKey: previousBrowserKey)
+    UserDefaults.standard.set(current.path, forKey: previousBrowserKey)
+}
 
 @MainActor func closeSettings() {
     guard let w = settingsWindow, w.isVisible else { return }
