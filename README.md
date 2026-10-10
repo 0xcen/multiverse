@@ -1,8 +1,6 @@
-<p align="center"><img src="docs/launch.png" alt="Multiverse: same apps, different universes. Separate logins, every link in the right browser."></p>
-
 # Multiverse
 
-**[Watch the launch film](docs/multiverse-launch.mp4)**
+<p align="center"><img src="docs/launch.png" alt="Multiverse: same apps, different universes. Separate logins, every link in the right browser."></p>
 
 Keep work and personal apart on one Mac, even inside the same app.
 
@@ -45,6 +43,8 @@ Then open Multiverse from the menu bar → **Settings…**, create your universe
 **Turn on** so links start being routed. macOS asks you to confirm the browser change.
 
 ## How it works
+
+https://github.com/user-attachments/assets/ab4d2534-d082-4310-9f05-c4e119b3041d
 
 ### Copies
 
