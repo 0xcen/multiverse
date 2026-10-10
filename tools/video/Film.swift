@@ -7,7 +7,7 @@ let fps = 30.0
 /// Every beat's start, in seconds. Picture and sound both read these, so they can't drift apart.
 enum T {
     /// Music tempo: the dots, the groove and the beat grid all use it.
-    static let bpm = 112.0, quarter = 60 / bpm
+    static let bpm = 96.0, quarter = 60 / bpm
 
     /// Cold open: a tangled mess of apps snaps into two clean pathways, then the headline holds.
     static let untangle = 1.4, untangled = 2.4
@@ -357,11 +357,11 @@ struct Frame: View {
             // Secondary action: a ring leaves the node when the link reaches it.
             let ring = prog(t, rt.leg1.1, rt.leg1.1 + 0.45)
             Capsule().stroke(lane.dot.opacity(0.6 * (1 - ring)), lineWidth: 2)
-                .frame(width: 300 + 120 * CGFloat(ring), height: 64 + 70 * CGFloat(ring))
+                .frame(width: 330 + 120 * CGFloat(ring), height: 74 + 70 * CGFloat(ring))
                 .position(nodePoint).opacity(ring > 0 && ring < 1 ? 1 : 0)
-            Route(from: lineStart, to: CGPoint(x: nodePoint.x - 170, y: nodePoint.y), progress: leg1)
-            Route(from: CGPoint(x: nodePoint.x + 170, y: nodePoint.y), to: CGPoint(x: browserRect.minX, y: browserRect.midY), progress: leg2)
-            Node(name: lane.node, dot: lane.dot, lit: leg1 >= 1)
+            Route(from: lineStart, to: CGPoint(x: nodePoint.x - 172, y: nodePoint.y), progress: leg1)
+            Route(from: CGPoint(x: nodePoint.x + 172, y: nodePoint.y), to: CGPoint(x: browserRect.minX - 12, y: browserRect.midY), progress: leg2)
+            Node(name: lane.node, dot: lane.dot, lit: leg1 >= 1, width: 320)
                 .scaleEffect(leg1 >= 1 ? mix(1.08, 1, snap(prog(t, rt.leg1.1, rt.leg1.1 + 0.25))) : 1)
                 .position(nodePoint)
             Window(title: lane.browserLabel, ivory: lane.ivory) {
@@ -412,16 +412,18 @@ struct Frame: View {
     }
 
     private func routeRow(y: CGFloat, lane: Lane, draw: Double = 1) -> some View {
-        ZStack(alignment: .topLeading) {
-            Route(from: CGPoint(x: 470, y: y), to: CGPoint(x: 780, y: y), progress: draw, pulse: false)
-            Route(from: CGPoint(x: 1140, y: y), to: CGPoint(x: 1400, y: y), progress: draw, pulse: false)
-            Tile(app: lane.app, ivory: lane.ivory, size: 120).position(x: 400, y: y)
-            Node(name: lane.node, dot: lane.dot).position(x: 960, y: y)
-            HStack(spacing: 16) {
-                Tile(app: lane.browser, ivory: lane.ivory, size: 120)
-                Text(lane.browserLabel).font(.system(size: 30)).foregroundStyle(Carbon.ivory).fixedSize()
-            }
-            .position(x: 1570, y: y)
+        // Fixed columns: app tile, node (one width for all), browser tile; labels start after the browser
+        // tile, so long names never shift the tiles. Lines run exactly edge to edge.
+        let appX: CGFloat = 400, nodeX: CGFloat = 960, browserX: CGFloat = 1500, tile: CGFloat = 120, nodeW: CGFloat = 320
+        return ZStack(alignment: .topLeading) {
+            Route(from: CGPoint(x: appX + tile / 2 + 12, y: y), to: CGPoint(x: nodeX - nodeW / 2 - 12, y: y), progress: draw, pulse: false)
+            Route(from: CGPoint(x: nodeX + nodeW / 2 + 12, y: y), to: CGPoint(x: browserX - tile / 2 - 12, y: y), progress: draw, pulse: false)
+            Tile(app: lane.app, ivory: lane.ivory, size: tile).position(x: appX, y: y)
+            Node(name: lane.node, dot: lane.dot, width: nodeW).position(x: nodeX, y: y)
+            Tile(app: lane.browser, ivory: lane.ivory, size: tile).position(x: browserX, y: y)
+            Text(lane.browserLabel).font(.system(size: 30)).foregroundStyle(Carbon.ivory).fixedSize()
+                .frame(width: 360, alignment: .leading)
+                .position(x: browserX + tile / 2 + 24 + 180, y: y)
         }
     }
 

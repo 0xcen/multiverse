@@ -5,7 +5,7 @@ OUT=${1:-docs/multiverse-launch.mp4}
 WORK=$(mktemp -d)
 BIN="$WORK/launch-video"
 swiftc -O -parse-as-library -D SNAPSHOT Sources/*.swift tools/Carbon.swift tools/video/Pieces.swift tools/video/Film.swift \
-  tools/video/Audio.swift tools/video/main.swift -o "$BIN"
+  tools/video/Audio.swift tools/video/Score.swift tools/video/main.swift -o "$BIN"
 FRAMES=$("$BIN" frames-count)
 
 # Two-pass loudness normalisation to -16 LUFS: measure, then apply exactly.

@@ -335,13 +335,16 @@ struct Node: View {
     let name: String
     let dot: Color
     var lit = true
+    /// A fixed width keeps nodes (and the lines meeting them) aligned whatever the name's length.
+    var width: CGFloat? = nil
     var body: some View {
         HStack(spacing: 12) {
             Image(nsImage: Carbon.appIcon).resizable().frame(width: 40, height: 40)
             Circle().fill(dot).frame(width: 14, height: 14)
-            Text(name).font(.system(size: 26, weight: .medium)).foregroundStyle(Carbon.ivory)
+            Text(name).font(.system(size: 26, weight: .medium)).foregroundStyle(Carbon.ivory).fixedSize()
         }
         .padding(.horizontal, 20).padding(.vertical, 12)
+        .frame(width: width)
         .background(Capsule().fill(Carbon.panel))
         .overlay(Capsule().stroke(lit ? Carbon.ivory.opacity(0.6) : Carbon.border, lineWidth: 1.5))
     }

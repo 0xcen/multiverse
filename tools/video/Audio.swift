@@ -131,123 +131,6 @@ extension Mixer {
     }
 }
 
-// MARK: - Groove: Kandinsky meets cypherpunk
-// Kandinsky heard shapes: here circles are round sine bells, squares are square-wave plucks, lines are
-// glides. Cypherpunk: a dark A-minor sequencer at `T.bpm`, a crushed FM arpeggio, sub bass, offbeat hats.
-
-extension Mixer {
-    /// Circle: a round sine bell.
-    mutating func circle(_ at: Double, _ f: Double, pan: Double = 0, gain: Double = 0.05) {
-        add(at: at, length: 0.6, pan: pan, gain: gain) { t in
-            (1 - exp(-t / 0.002)) * (sin(2 * .pi * f * t) + 0.3 * sin(4 * .pi * f * t) * exp(-t / 0.05)) * exp(-t / 0.18)
-        }
-    }
-
-    /// Square: a band-limited square-wave pluck with a closing filter.
-    mutating func square(_ at: Double, _ f: Double, pan: Double = 0, gain: Double = 0.035) {
-        add(at: at, length: 0.35, pan: pan, gain: gain) { t in
-            var v = 0.0
-            for h in stride(from: 1, through: 9, by: 2) {
-                let hd = Double(h)
-                v += sin(2 * .pi * f * hd * t) / hd * exp(-t * hd / 0.5)
-            }
-            return (1 - exp(-t / 0.002)) * v * exp(-t / 0.1)
-        }
-    }
-
-    /// Cypher bleep: FM, then crushed to a few levels for a digital edge.
-    mutating func bleep(_ at: Double, _ f: Double, pan: Double = 0, gain: Double = 0.04, ratio: Double = 3.5) {
-        add(at: at, length: 0.22, pan: pan, gain: gain) { t in
-            let index = 2.5 * exp(-t / 0.04)
-            let v = sin(2 * .pi * f * t + index * sin(2 * .pi * f * ratio * t)) * (1 - exp(-t / 0.001)) * exp(-t / 0.07)
-            return (v * 6).rounded() / 6
-        }
-    }
-
-    /// Line: a short glide between two notes.
-    mutating func line(_ at: Double, from f0: Double, to f1: Double, length: Double, pan: Double = 0, gain: Double = 0.03) {
-        var phase = 0.0
-        add(at: at, length: length, pan: pan, gain: gain) { t in
-            let x = t / length
-            phase += 2 * .pi * f0 * pow(f1 / f0, x) / sampleRate
-            return sin(phase) * sin(.pi * x)
-        }
-    }
-
-    mutating func hat(_ at: Double, gain: Double = 0.03, seed: UInt64) {
-        var noise = Noise(state: seed)
-        var last = 0.0
-        add(at: at, length: 0.05, pan: 0.3, gain: gain) { t in
-            let n = noise.next(), hp = n - last; last = n
-            return hp * exp(-t / 0.012)
-        }
-    }
-
-    mutating func kick(_ at: Double, gain: Double = 0.22) {
-        var phase = 0.0
-        add(at: at, length: 0.3, gain: gain) { t in
-            phase += 2 * .pi * 48 * (1 + 2 * exp(-t / 0.02)) / sampleRate
-            return sin(phase) * exp(-t / 0.12)
-        }
-    }
-
-    /// Sub bass note with a little grit.
-    mutating func bass(_ at: Double, _ f: Double, length: Double, gain: Double = 0.11) {
-        add(at: at, length: length, pan: 0, gain: gain) { t in
-            let env = (1 - exp(-t / 0.004)) * exp(-t / (length * 0.8))
-            return (sin(2 * .pi * f * t) + 0.25 * sin(4 * .pi * f * t) + 0.08 * sin(6 * .pi * f * t)) * env
-        }
-    }
-}
-
-/// A-minor pentatonic over two octaves.
-private let minorPenta = [220.0, 261.63, 293.66, 329.63, 392.0, 440.0, 523.25, 587.33, 659.25, 783.99]
-/// The same shape repeating with variation, like Kandinsky's recurring circles.
-private let motif = [0, 2, 4, 7, 5, 3, 1, 4, 0, 3, 5, 8, 6, 4, 2, 5]
-
-func addGroove(_ m: inout Mixer) {
-    let q = T.quarter, s16 = q / 4
-    // Bass roots per bar (Am, F, C, G), and where each chord sits in the scale for the arpeggio.
-    let roots = [110.0, 87.31, 65.41 * 2, 98.0], shift = [0, 5, 1, 4]
-    var step = 0
-    var t = T.untangle
-    while t < T.gather - 0.01 {
-        let bar = Int((t - T.untangle) / (q * 4)), beat = step / 4 % 4, sixteenth = step % 4
-        let chord = t < T.intro ? 0 : bar % 4
-        let pan = sin(Double(step) * 0.7) * 0.6
-        // Sub bass on 1, the "and" of 2, and 3.
-        if sixteenth == 0 && (beat == 0 || beat == 2) { m.bass(t, roots[chord], length: q * 1.4) }
-        if sixteenth == 2 && beat == 1 { m.bass(t, roots[chord], length: q * 0.6, gain: 0.07) }
-        // Rhythm once the explainer starts: soft kick on 1 and 3, hats on the offbeats.
-        if t >= T.intro {
-            if sixteenth == 0 && (beat == 0 || beat == 2) { m.kick(t) }
-        }
-        if sixteenth == 2 { m.hat(t, gain: t < T.intro ? 0.02 : 0.03, seed: UInt64(step)) }
-        // Arpeggio from the intro: circles on the beat, squares off it, bleeps in between.
-        if t >= T.intro {
-            let note = minorPenta[(motif[step % motif.count] + shift[chord]) % minorPenta.count]
-            switch sixteenth {
-            case 0: m.circle(t, note * 2, pan: pan, gain: 0.04)
-            case 2: m.square(t, note, pan: -pan, gain: 0.028)
-            default: if step % 3 != 0 { m.bleep(t, note * 2, pan: pan, gain: 0.03) }
-            }
-            // A line at the end of every second bar.
-            if step % 32 == 30 { m.line(t, from: note * 2, to: note * 3, length: q * 0.5, pan: pan) }
-        }
-        step += 1
-        t += s16
-    }
-    // After the icon lands: C major, slow circles fading out.
-    let cMajor = [523.25, 659.25, 783.99, 987.77, 1046.5]
-    var k = 0
-    var at = T.plateLand + q
-    while at < T.duration - 0.6 {
-        m.circle(at, cMajor[k % cMajor.count], pan: k % 2 == 0 ? -0.4 : 0.4, gain: 0.035 * (1 - (at - T.plateLand) / (T.duration - T.plateLand)))
-        k += 1; at += q
-    }
-    m.bass(T.plateLand, 65.41, length: T.duration - T.plateLand - 0.3, gain: 0.08)
-}
-
 func filmSoundtrack() -> Mixer {
     var m = Mixer(seconds: T.duration)
     // Cold open, the mess: dense and clashing, getting busier until it stops dead at the snap.
@@ -275,10 +158,10 @@ func filmSoundtrack() -> Mixer {
     // The snap: a low hit, then the tiles landing in order as a quick rising run.
     m.thump(T.untangle, gain: 0.55)
     for i in 0..<Frame.openApps.count {
-        let notes = [261.63, 293.66, 329.63, 392, 440, 523.25, 587.33, 659.25, 783.99, 880, 1046.5, 1174.66]
+        let notes = [293.66, 349.23, 392, 440, 523.25, 587.33, 698.46, 783.99, 880, 1046.5, 1174.66, 1396.91]  // D minor pentatonic
         m.pop(T.untangle + 0.08 + Double(i) * 0.025, notes[i], pan: -0.8 + Double(i) * 0.14, gain: 0.1)
     }
-    m.chime(T.untangle + 0.4, 659.25, pan: 0.5, gain: 0.08, decay: 0.8)
+    m.chime(T.untangle + 0.4, 587.33, pan: 0.5, gain: 0.08, decay: 0.8)
     m.chime(T.untangle + 0.46, 880, pan: 0.5, gain: 0.08, decay: 0.8)
     // Order: a soft, even tick each time a dot reaches Work or Personal.
     var beat = T.flow + T.flowBeat
@@ -288,17 +171,13 @@ func filmSoundtrack() -> Mixer {
         beat += T.flowBeat; k += 1
     }
     m.whoosh(from: T.intro - 0.3, to: T.intro, gain: 0.1, seed: 78)
-    addGroove(&m)
-    // Bed: a chord per act; brighter at the end.
-    m.pad(from: T.untangle, to: T.workRoute + 0.2, [110, 164.81, 246.94, 261.63])  // A2 E3 B3 C4
-    m.pad(from: T.workRoute - 0.2, to: T.gather + 0.2, [87.31, 130.81, 220, 329.63]) // F2 C3 A3 E4
-    m.pad(from: T.plateLand - 0.1, to: T.duration, [130.81, 196, 329.63, 493.88], gain: 0.02) // Cmaj7
+    addScore(&m)  // the music (Score.swift); everything here is the cue layer on top
 
     // 1. One becomes two
     m.pop(T.intro + 0.03, 330)
     m.click(T.split, pan: 0, gain: 0.3)
     m.pop(T.split + 0.02, 440, pan: 0.4)
-    m.chime(T.invert, 1318.5, pan: 0.45, gain: 0.07, decay: 0.5)
+    m.chime(T.invert, 1174.66, pan: 0.45, gain: 0.06, decay: 0.5)
     // 2. Different lives
     m.whoosh(from: T.lives - 0.25, to: T.lives + 0.02, gain: 0.12)
     m.pop(T.lives + 0.02, 262, pan: -0.5)
@@ -309,30 +188,25 @@ func filmSoundtrack() -> Mixer {
     m.click(T.hoverSlack, pan: 0.6, gain: 0.12, seed: 5, tone: 3200)
     m.click(T.hoverPersonal, pan: 0.6, gain: 0.12, seed: 6, tone: 3200)
     // 4. Copies
-    m.pop(T.cuts, 392, gain: 0.26)
-    m.pop(T.card2, 440, gain: 0.26)
-    let scale = [523.25, 587.33, 659.25, 783.99, 880, 1046.5, 1174.66]  // pentatonic up
+    m.pop(T.cuts, 392, gain: 0.2)
+    m.pop(T.card2, 440, gain: 0.2)
+    let scale = [587.33, 698.46, 783.99, 880, 1046.5, 1174.66, 1396.91]  // D minor pentatonic up
     for i in 0..<Frame.dockItems.count {
         m.pop(T.dock + Double(i) * 0.06, scale[i], pan: -0.6 + Double(i) * 0.24, gain: 0.14)
     }
     // 5–6. Routes: click, the link travels (rising), node, it lands (chime).
-    for (rt, land) in [(workTimes, 659.25), (personalTimes, 880.0), (sideTimes, 987.77)] {
+    for (rt, land) in [(workTimes, 880.0), (personalTimes, 698.46), (sideTimes, 1046.5)] {
         m.mouse(rt.click - 0.03, pan: -0.55)
-        m.glide(from: rt.leg1.0, to: rt.leg1.1, 330, 520, pan0: -0.5, pan1: 0)
+        m.glide(from: rt.leg1.0, to: rt.leg1.1, 293.66, 440, pan0: -0.5, pan1: 0)
         m.click(rt.leg1.1, gain: 0.18, seed: 7, tone: 1600)
-        m.glide(from: rt.leg2.0, to: rt.leg2.1, 520, 780, pan0: 0, pan1: 0.55)
+        m.glide(from: rt.leg2.0, to: rt.leg2.1, 440, 587.33, pan0: 0, pan1: 0.55)
         m.chime(rt.open, land, pan: 0.55, gain: 0.17)
     }
     // 7. Both routes
-    m.chime(T.both + 0.05, 659.25, pan: -0.3, gain: 0.09, decay: 0.7)
-    m.chime(T.both + 0.15, 880, pan: 0, gain: 0.09, decay: 0.7)
-    m.chime(T.both + 0.25, 987.77, pan: 0.3, gain: 0.09, decay: 0.7)
+
     // 8. Into the icon, and the title.
     m.whoosh(from: T.gather, to: T.plateLand - 0.02, gain: 0.26, seed: 31)
     m.thump(T.plateLand)
-    for (i, f) in [523.25, 659.25, 783.99, 987.77].enumerated() {
-        m.chime(T.plateLand + Double(i) * 0.015, f, gain: 0.07, decay: 1.6)
-    }
     m.click(T.end + 0.12, gain: 0.12, seed: 13, tone: 2000)
     m.click(T.end + 0.3, gain: 0.09, seed: 14, tone: 2200)
     return m

@@ -38,10 +38,12 @@ Reading time: every caption appears with room to be read (about 0.25 s a word pl
 fully visible for 1.3 s or more before the next cut. When a beat feels rushed, lengthen the beat, not the
 animation.
 
-Music: Kandinsky meets cypherpunk at 112 BPM in A minor. Shapes have sounds (circle = sine bell,
-square = square-wave pluck, line = glide); a crushed FM arpeggio, sub bass, offbeat hats and a soft
-kick. The groove starts at the snap (order) and stops when the routes fold into the icon; the mess
-before it stays unmetered.
+Music (`Score.swift`): a written piece at 96 BPM in D minor (Dm, B♭, F, C, two bars each). A warm saw
+bass ostinato in eighths drives it from the snap; wide detuned pads from the end of the cold open; sparse
+drums (deep kick, clap in a small room, quiet hats) with the explainer; a lead hook with the routes.
+Kandinsky: shapes on screen sound as in-key bells, echoed through a ping-pong delay and the room. It all
+drops for the fold and lands on Dm9. Cues in `Audio.swift` stay in D minor too. The cold-open mess before
+the snap stays unmetered and clashing.
 
 Pace: entrances under 0.35 s (`snap`), pops land with a small overshoot (`pop`), hard cuts between
 beats. Sound is restrained: a quiet pad, dry clicks/pops, a rising tone while a link travels, a chime
