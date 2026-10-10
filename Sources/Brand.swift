@@ -43,8 +43,18 @@ enum Space {
     static let label: CGFloat = 10
     /// Before a caption under a control.
     static let caption: CGFloat = 8
+    /// Between groups inside a sheet or a setup step (denser than `section`).
+    static let group: CGFloat = 20
+    /// Between items in a list of cards.
+    static let item: CGFloat = 12
+    /// Sheet padding.
+    static let sheet: CGFloat = 24
     /// Inside cards and rows.
     static let rowH: CGFloat = 14, rowV: CGFloat = 12
+    /// Inside larger cards (choices, permissions, universe cards).
+    static let card: CGFloat = 16
+    /// One corner radius for cards.
+    static let radius: CGFloat = 10
 }
 
 /// A section's label, e.g. "Links open in", "Apps".

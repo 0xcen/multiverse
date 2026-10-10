@@ -107,7 +107,7 @@ struct OnboardingView: View {
                 UserDefaults.standard.set(resume.rawValue, forKey: resumeStepKey)
             }
 
-            Divider().padding(.horizontal, -32).padding(.bottom, 14)
+            Divider().padding(.horizontal, -Space.page).padding(.bottom, Space.group)
             HStack {
                 HStack(spacing: 6) {
                     ForEach(steps, id: \.self) { s in
@@ -115,7 +115,7 @@ struct OnboardingView: View {
                     }
                 }
                 Spacer()
-                if step == .universes { Button("Back") { step = .welcome } }
+                if step == .universes { Button("Back") { step = .welcome }.buttonStyle(.brandQuiet) }
                 if step != .permissions {
                     Button(step == .welcome ? "Get started" : "Continue") { advance() }
                         .keyboardShortcut(.defaultAction)
@@ -131,9 +131,9 @@ struct OnboardingView: View {
                 }
             }
         }
-        .padding(.horizontal, 32)
-        .padding(.top, 36)
-        .padding(.bottom, 22)
+        .padding(.horizontal, Space.page)
+        .padding(.top, Space.page + 4)
+        .padding(.bottom, Space.group)
         .frame(width: 640, height: 600)
         .background(Brand.background)
         .tint(Brand.ink)
@@ -164,13 +164,13 @@ struct OnboardingView: View {
 
 private struct WelcomeStep: View {
     var body: some View {
-        VStack(alignment: .leading, spacing: 20) {
+        VStack(alignment: .leading, spacing: Space.group) {
             Image(nsImage: NSApp.applicationIconImage).resizable().frame(width: 72, height: 72)
             VStack(alignment: .leading, spacing: -6) {
                 BrandTitle("Same apps.", size: 52)
                 BrandTitle("Different universes.", size: 52)
             }
-            VStack(alignment: .leading, spacing: 16) {
+            VStack(alignment: .leading, spacing: Space.group) {
                 Point(symbol: "circle.hexagongrid", title: "Universes",
                       text: "Group your apps into universes, like 💼 Work and 🏠 Personal.")
                 Point(symbol: "square.on.square", title: "Separate copies",
@@ -179,7 +179,7 @@ private struct WelcomeStep: View {
                       text: "A link you click in a work app opens in your work browser, and so on.")
             }
             Text("Setup takes a minute. macOS asks you to confirm a few things along the way; the next steps say what and why.")
-                .foregroundStyle(.secondary)
+                .foregroundStyle(Brand.muted)
                 .fixedSize(horizontal: false, vertical: true)
         }
     }
@@ -192,7 +192,7 @@ private struct Point: View {
             Image(systemName: symbol).font(.title2).foregroundStyle(Brand.ink).frame(width: 30)
             VStack(alignment: .leading, spacing: 2) {
                 Text(title).font(.headline)
-                Text(text).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+                Text(text).foregroundStyle(Brand.muted).fixedSize(horizontal: false, vertical: true)
             }
         }
     }
@@ -394,58 +394,69 @@ private struct UniversesStep: View {
 
     private var editor: some View {
         ScrollView {
-            VStack(alignment: .leading, spacing: 14) {
-                Text("Your universes").font(Brand.heading(34)).tracking(-1)
-                Text("A universe is one side of your life, with its own browser.")
-                    .foregroundStyle(.secondary)
-
-                Text("Main universe").font(.headline).padding(.top, 4)
-                Text("Every app starts here, and links from apps you don't move open in its browser. Name it after the side most of your apps belong to.")
-                    .font(.callout).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
-                if let first = setup.drafts.indices.first {
-                    DraftCard(draft: $setup.drafts[first], canRemove: false, isMain: true) {}
+            VStack(alignment: .leading, spacing: Space.section) {
+                VStack(alignment: .leading, spacing: Space.label) {
+                    Text("Your universes").font(Brand.heading(34)).tracking(-1)
+                    Text("A universe is one side of your life, with its own browser.")
+                        .foregroundStyle(Brand.muted)
                 }
 
-                Text("Other universes").font(.headline).padding(.top, 8)
-                Text("After setup you'll add the apps that belong here, or a copy of one you also use in your main universe.")
-                    .font(.callout).foregroundStyle(.secondary)
-                ForEach($setup.drafts.dropFirst()) { $d in
-                    DraftCard(draft: $d, canRemove: true, isMain: false) {
-                        setup.drafts.removeAll { $0.id == d.id }
+                VStack(alignment: .leading, spacing: Space.label) {
+                    SectionLabel("Main universe")
+                    Text("Every app starts here, and links from apps you don't move open in its browser. Name it after the side most of your apps belong to.")
+                        .font(.callout).foregroundStyle(Brand.muted).fixedSize(horizontal: false, vertical: true)
+                    if let first = setup.drafts.indices.first {
+                        DraftCard(draft: $setup.drafts[first], canRemove: false, isMain: true) {}
+                            .padding(.top, Space.caption)
                     }
                 }
-                Button { setup.addDraft() } label: { Label("Add a universe", systemImage: "plus") }
-                    .buttonStyle(.borderless)
-                if let warning = setup.sharedBrowserWarning {
-                    Label(warning, systemImage: "exclamationmark.triangle").font(.callout).foregroundStyle(.orange)
-                        .fixedSize(horizontal: false, vertical: true)
+
+                VStack(alignment: .leading, spacing: Space.label) {
+                    SectionLabel("Other universes")
+                    Text("After setup you'll add the apps that belong here, or a copy of one you also use in your main universe.")
+                        .font(.callout).foregroundStyle(Brand.muted)
+                    VStack(spacing: Space.item) {
+                        ForEach($setup.drafts.dropFirst()) { $d in
+                            DraftCard(draft: $d, canRemove: true, isMain: false) {
+                                setup.drafts.removeAll { $0.id == d.id }
+                            }
+                        }
+                    }
+                    .padding(.top, Space.caption)
+                    Button { setup.addDraft() } label: { Label("Add a universe", systemImage: "plus") }
+                        .buttonStyle(.brandQuiet)
+                        .padding(.top, Space.caption)
+                    if let warning = setup.sharedBrowserWarning {
+                        Label(warning, systemImage: "exclamationmark.triangle").font(.callout).foregroundStyle(.orange)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
                 }
             }
-            .padding(.bottom, 12)
+            .padding(.bottom, Space.group)
         }
     }
 
     private var existing: some View {
-        VStack(alignment: .leading, spacing: 16) {
+        VStack(alignment: .leading, spacing: Space.group) {
             Text("Your universes").font(Brand.heading(34)).tracking(-1)
             Text("Check the browser each universe's links open in. Rename, recolour or add universes in Settings.")
-                .foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+                .foregroundStyle(Brand.muted).fixedSize(horizontal: false, vertical: true)
             VStack(spacing: 0) {
                 ForEach($store.config.universes) { $u in
                     HStack {
-                        Text("\(u.emoji) \(u.name)").font(.headline)
+                        SectionLabel("\(u.emoji) \(u.name)")
                         if store.config.defaultUniverse?.id == u.id {
-                            Image(systemName: "star.fill").font(.caption).foregroundStyle(.secondary)
+                            Image(systemName: "star.fill").font(.caption).foregroundStyle(Brand.muted)
                                 .help("Main universe: every app not in another universe belongs here")
                         }
                         Spacer()
                         BrowserPicker(universe: $u)
                     }
-                    .padding(12)
+                    .padding(.horizontal, Space.rowH).padding(.vertical, Space.rowV)
                     if u.id != store.config.universes.last?.id { Divider() }
                 }
             }
-            .brandCard(radius: 10)
+            .brandCard(radius: Space.radius)
         }
     }
 }
@@ -471,12 +482,12 @@ private struct DraftCard: View {
                 Spacer()
                 ColorSwatches(color: Binding(get: { draft.color }, set: { draft.color = $0 ?? draft.color }))
                 if canRemove {
-                    Button(action: remove) { Image(systemName: "xmark.circle.fill").foregroundStyle(.secondary) }
+                    Button(action: remove) { Image(systemName: "xmark.circle.fill").foregroundStyle(Brand.muted) }
                         .buttonStyle(.plain).help("Remove")
                 }
             }
             HStack(spacing: 8) {
-                Text("Links open in").foregroundStyle(.secondary)
+                Text("Links open in").foregroundStyle(Brand.muted)
                 Menu {
                     Section("Your browsers") {
                         ForEach(installedBrowsers(), id: \.self) { b in
@@ -515,11 +526,11 @@ private struct DraftCard: View {
                 Text(Builder.copyBlocker(URL(fileURLWithPath: draft.browserPath)) == nil
                      ? "When you continue, Multiverse creates a separate \(browserName) app for \(universeName), with its own Dock icon. It starts empty, with no logins, history or extensions, so \(universeName) stays apart from your other \(browserName)."
                      : "When you continue, Multiverse creates a separate \(browserName) profile for \(universeName), opened from its own app in Applications. It starts empty, with no logins, history or extensions. Its windows share \(browserName)'s Dock icon, because \(browserName) can't run as a copy.")
-                    .font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+                    .font(.caption).foregroundStyle(Brand.muted).fixedSize(horizontal: false, vertical: true)
             }
         }
-        .padding(14)
-        .brandCard(radius: 12)
+        .padding(Space.card)
+        .brandCard(radius: Space.radius)
         .overlay(RoundedRectangle(cornerRadius: 12).stroke(Color(nsColor: NSColor(hex: draft.color) ?? .gray).opacity(0.5), lineWidth: 1))
     }
 }
@@ -530,10 +541,10 @@ private struct BuildStep: View {
     @EnvironmentObject var setup: SetupModel
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 14) {
+        VStack(alignment: .leading, spacing: Space.group) {
             Text(setup.building ? "Setting up…" : (setup.tasks.isEmpty ? "Nothing to build" : "All set")).font(Brand.heading(34)).tracking(-1)
             if setup.tasks.isEmpty {
-                Text("Nothing to build.").foregroundStyle(.secondary)
+                Text("Nothing to build.").foregroundStyle(Brand.muted)
             } else {
                 ScrollView {
                     VStack(spacing: 0) {
@@ -549,7 +560,7 @@ private struct BuildStep: View {
                                 case .failed: Image(systemName: "exclamationmark.circle.fill").foregroundStyle(.red)
                                 }
                             }
-                            .padding(.vertical, 8).padding(.horizontal, 12)
+                            .padding(.vertical, Space.rowV).padding(.horizontal, Space.rowH)
                             if case .failed(let reason) = t.state {
                                 Text(reason).font(.caption).foregroundStyle(.red)
                                     .frame(maxWidth: .infinity, alignment: .leading).padding(.horizontal, 46).padding(.bottom, 8)
@@ -557,11 +568,11 @@ private struct BuildStep: View {
                             if t.id != setup.tasks.last?.id { Divider() }
                         }
                     }
-                    .brandCard(radius: 10)
+                    .brandCard(radius: Space.radius)
                 }
                 .frame(maxHeight: 250)
                 if let example = setup.tasks.first(where: { $0.copy != nil }), let copy = example.copy {
-                    VStack(alignment: .leading, spacing: 8) {
+                    VStack(alignment: .leading, spacing: Space.label) {
                         Label("When you first open a copy", systemImage: "key").font(.headline)
                         Text("macOS asks whether it may use “… Safe Storage” from your keychain. That's where the app keeps the key for your saved logins. Enter your Mac password and click **Always Allow**.")
                             .font(.callout).fixedSize(horizontal: false, vertical: true)
@@ -584,10 +595,10 @@ private struct PermissionsStep: View {
     var body: some View {
         let targets = Automation.targets(in: store.config)
         ScrollView {
-            VStack(alignment: .leading, spacing: 14) {
+            VStack(alignment: .leading, spacing: Space.group) {
                 Text("Permissions").font(Brand.heading(34)).tracking(-1)
                 Text("Multiverse only asks for what it uses. Each of these is a one-time macOS prompt.")
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(Brand.muted)
 
                 PermissionRow(
                     symbol: "link", title: "Default browser",
@@ -617,7 +628,7 @@ private struct PermissionsStep: View {
                 VStack(alignment: .leading, spacing: 10) {
                     Label("What your copies will ask", systemImage: "info.circle").font(.headline)
                     Text("macOS treats each copy as a new app, so the first time a copy opens you'll see prompts like these:")
-                        .font(.callout).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+                        .font(.callout).foregroundStyle(Brand.muted).fixedSize(horizontal: false, vertical: true)
                     HStack(alignment: .top, spacing: 12) {
                         PromptSketch(
                             symbol: "lock.fill", tint: .yellow,
@@ -631,8 +642,8 @@ private struct PermissionsStep: View {
                             caption: "Folders, camera, microphone, screen: allow what you'd allow the original.")
                     }
                 }
-                .padding(14)
-                .brandCard(radius: 10)
+                .padding(Space.card)
+                .brandCard(radius: Space.radius)
             }
             .padding(.bottom, 16)
         }
@@ -719,7 +730,7 @@ private struct PromptSketch: View {
             .padding(10)
             .background(RoundedRectangle(cornerRadius: 10).fill(.background))
             .overlay(RoundedRectangle(cornerRadius: 10).stroke(.quaternary))
-            Text(caption).font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+            Text(caption).font(.caption).foregroundStyle(Brand.muted).fixedSize(horizontal: false, vertical: true)
         }
         .frame(maxWidth: .infinity, alignment: .topLeading)
     }
@@ -743,17 +754,17 @@ private struct PermissionRow: View {
                     Text(title).font(.headline)
                     pill
                 }
-                Text(why).font(.callout).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+                Text(why).font(.callout).foregroundStyle(Brand.muted).fixedSize(horizontal: false, vertical: true)
             }
             Spacer(minLength: 8)
             if busy {
                 ProgressView().controlSize(.small)
             } else if status != .done {
-                Button(status == .denied ? "Open Settings" : actionTitle, action: action)
+                Button(status == .denied ? "Open Settings" : actionTitle, action: action).buttonStyle(.brandQuiet)
             }
         }
-        .padding(12)
-        .brandCard(radius: 10)
+        .padding(Space.card)
+        .brandCard(radius: Space.radius)
     }
 
     @ViewBuilder private var pill: some View {
@@ -761,7 +772,7 @@ private struct PermissionRow: View {
         case .done: Label("Done", systemImage: "checkmark.circle.fill").font(.caption.bold()).foregroundStyle(Brand.olive)
         case .needed: Text("Needed").font(.caption.bold()).foregroundStyle(.orange)
         case .denied: Text("Turned off").font(.caption.bold()).foregroundStyle(.red)
-        case .optional: Text("Optional").font(.caption.bold()).foregroundStyle(.secondary)
+        case .optional: Text("Optional").font(.caption.bold()).foregroundStyle(Brand.muted)
         }
     }
 }

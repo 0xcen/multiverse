@@ -17,7 +17,7 @@ struct SettingsView: View {
                             Text(u.name)
                             Spacer()
                             if store.config.defaultUniverse?.id == u.id {
-                                Image(systemName: "star.fill").font(.caption2).foregroundStyle(.secondary)
+                                Image(systemName: "star.fill").font(.caption2).foregroundStyle(Brand.muted)
                                     .help("Main universe: every app not in another universe belongs here")
                             }
                             Circle().fill(Color(nsColor: NSColor(hex: u.color ?? "") ?? .tertiaryLabelColor))
@@ -84,7 +84,7 @@ struct RoutingBanner: View {
             Spacer()
             Button("Finish setup") { showOnboarding() }.buttonStyle(.brand)
         }
-        .padding(10)
+        .padding(.horizontal, Space.page).padding(.vertical, 10)
         .background(Brand.olive.opacity(0.18))
     }
 }
@@ -93,9 +93,9 @@ struct ContentUnavailable: View {
     var body: some View {
         VStack(spacing: 8) {
             Image(nsImage: NSApp.applicationIconImage).resizable().frame(width: 64, height: 64)
-            Text("Create a universe, like Work or Personal.").font(.headline)
+            SectionLabel("Create a universe, like Work or Personal.")
             Text("Put apps in it, and links you open from those apps go to that universe's browser.")
-                .foregroundStyle(.secondary)
+                .foregroundStyle(Brand.muted)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
@@ -148,7 +148,7 @@ struct UniversePage: View {
                             if app.id != apps.last?.id { Divider() }
                         }
                     }
-                    .brandCard(radius: 10)
+                    .brandCard(radius: Space.radius)
                 }
             }
             .padding(.horizontal, Space.page).padding(.vertical, Space.page - 4)
@@ -298,7 +298,7 @@ struct AppRow: View {
                 .opacity(exists ? 1 : 0.5)
             VStack(alignment: .leading, spacing: 2) {
                 Text(entry.name).fontWeight(.medium)
-                Text(subtitle).font(.caption).foregroundStyle(.secondary)
+                Text(subtitle).font(.caption).foregroundStyle(Brand.muted)
                 if nameTaken {
                     Text("There's already an app called \(entry.name), so this copy can't use that name. Remove it and add it again with another name.")
                         .font(.caption).foregroundStyle(.red)
@@ -584,7 +584,7 @@ struct AddAppSheet: View {
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 16) {
+        VStack(alignment: .leading, spacing: Space.group) {
             switch step {
             case .pick: pick
             case .how: how
@@ -595,7 +595,7 @@ struct AddAppSheet: View {
                 }
             }
         }
-        .padding(20)
+        .padding(Space.sheet)
         .frame(width: 520, height: 510)
         .background(Brand.background)
         .tint(Brand.ink)
@@ -610,7 +610,7 @@ struct AddAppSheet: View {
 
     // Step 1
     private var pick: some View {
-        VStack(alignment: .leading, spacing: 12) {
+        VStack(alignment: .leading, spacing: Space.group) {
             Text("Add an app to \(universe.emoji) \(universe.name)").font(Brand.heading(24)).tracking(-0.6)
             TextField("Search apps", text: $search).textFieldStyle(.roundedBorder)
             List(apps.filter { search.isEmpty || $0.name.localizedCaseInsensitiveContains(search) }) { a in
@@ -622,13 +622,13 @@ struct AddAppSheet: View {
                         Image(nsImage: appIcon(a.url.path, size: 24))
                         Text(a.name)
                         Spacer()
-                        if let u = universeUsing(a) { Text("in \(u.emoji) \(u.name)").font(.caption).foregroundStyle(.secondary) }
+                        if let u = universeUsing(a) { Text("in \(u.emoji) \(u.name)").font(.caption).foregroundStyle(Brand.muted) }
                     }
                     .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
             }
-            HStack { Spacer(); Button("Cancel") { dismiss() }.keyboardShortcut(.cancelAction) }
+            HStack { Spacer(); Button("Cancel") { dismiss() }.buttonStyle(.brandQuiet).keyboardShortcut(.cancelAction) }
         }
     }
 
@@ -638,7 +638,7 @@ struct AddAppSheet: View {
         let elsewhere = universeUsing(a)
         let blocker = Builder.copyBlocker(a.url)
         let ownLogins = Builder.supportsProfiles(a.url)
-        return VStack(alignment: .leading, spacing: 14) {
+        return VStack(alignment: .leading, spacing: Space.group) {
             HStack {
                 Image(nsImage: appIcon(a.url.path, size: 40))
                 Text("How should \(a.name) work in \(universe.name)?").font(Brand.heading(24)).tracking(-0.6)
@@ -672,9 +672,9 @@ struct AddAppSheet: View {
             }
             Spacer()
             HStack {
-                Button("Back") { step = .pick }
+                Button("Back") { step = .pick }.buttonStyle(.brandQuiet)
                 Spacer()
-                Button("Cancel") { dismiss() }.keyboardShortcut(.cancelAction)
+                Button("Cancel") { dismiss() }.buttonStyle(.brandQuiet).keyboardShortcut(.cancelAction)
             }
         }
     }
@@ -686,10 +686,10 @@ struct AddAppSheet: View {
         let clash = FileManager.default.fileExists(atPath: "/Applications/\(trimmed).app")
             || store.config.apps.contains { $0.name == trimmed }
         let ownLogins = Builder.supportsProfiles(a.url)
-        return VStack(alignment: .leading, spacing: 14) {
+        return VStack(alignment: .leading, spacing: Space.group) {
             Text(Builder.copyBlocker(a.url) == nil ? "Your copy of \(a.name)" : "Your \(a.name) profile").font(Brand.heading(24)).tracking(-0.6)
-            VStack(alignment: .leading, spacing: 4) {
-                Text("Name").font(.headline)
+            VStack(alignment: .leading, spacing: Space.label) {
+                SectionLabel("Name")
                 TextField("Name", text: $name).textFieldStyle(.roundedBorder)
                 if let problem = AppEntry.nameProblem(trimmed), !trimmed.isEmpty {
                     Text(problem).font(.caption).foregroundStyle(.red)
@@ -705,13 +705,13 @@ struct AddAppSheet: View {
                   systemImage: ownLogins ? "checkmark.circle" : "info.circle")
                 .font(.callout).foregroundStyle(ownLogins ? Brand.ink : Brand.muted)
             Label("After \(a.name) updates, Multiverse lets you update the copy with one click.", systemImage: "arrow.triangle.2.circlepath")
-                .font(.callout).foregroundStyle(.secondary)
+                .font(.callout).foregroundStyle(Brand.muted)
             if let err = store.errors[draftID] { Text(err).font(.callout).foregroundStyle(.red) }
             Spacer()
             HStack {
-                Button("Back") { step = .how }
+                Button("Back") { step = .how }.buttonStyle(.brandQuiet)
                 Spacer()
-                Button("Cancel") { dismiss() }.keyboardShortcut(.cancelAction)
+                Button("Cancel") { dismiss() }.buttonStyle(.brandQuiet).keyboardShortcut(.cancelAction)
                 if store.busy.contains(draftID) {
                     ProgressView().controlSize(.small)
                 } else {
@@ -768,8 +768,8 @@ struct IconChooser: View {
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            Text("Icon").font(.headline)
+        VStack(alignment: .leading, spacing: Space.label) {
+            SectionLabel("Icon")
             HStack(spacing: 16) {
                 ForEach([IconStyle.ivory, .graphite, .tint, .original]) { style in
                     VStack {
@@ -788,7 +788,7 @@ struct IconChooser: View {
             }
             if selection == .tint {
                 HStack(spacing: 8) {
-                    Text("\(universe.name) colour").font(.caption).foregroundStyle(.secondary)
+                    Text("\(universe.name) colour").font(.caption).foregroundStyle(Brand.muted)
                     ColorSwatches(color: Binding(
                         get: { universe.color },
                         set: { c in
@@ -821,23 +821,23 @@ struct CopyReadyView: View {
     private var source: String { appName(entry.sourcePath) }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 16) {
+        VStack(alignment: .leading, spacing: Space.group) {
             HStack(spacing: 12) {
                 Image(nsImage: appIcon(entry.installedPath, size: 44))
                 VStack(alignment: .leading, spacing: 2) {
                     Text("\(entry.name) is ready").font(Brand.heading(24)).tracking(-0.6)
-                    Text("One thing to expect the first time it opens:").foregroundStyle(.secondary)
+                    Text("One thing to expect the first time it opens:").foregroundStyle(Brand.muted)
                 }
             }
             Text("macOS will ask whether \(entry.name) may use “\(source) Safe Storage” from your keychain. That's where \(source) keeps the key that encrypts saved passwords and cookies, and macOS checks with you because \(entry.name) is a new app. Enter your Mac password and click **Always Allow**.")
                 .fixedSize(horizontal: false, vertical: true)
             KeychainPromptPreview(app: entry.name, item: "\(source) Safe Storage", icon: appIcon(entry.installedPath, size: 28))
             Text("If you click Deny, \(entry.name) can't keep you signed in. You'll see this again after updating the copy.")
-                .font(.caption).foregroundStyle(.secondary)
+                .font(.caption).foregroundStyle(Brand.muted)
             Spacer()
             HStack {
                 Spacer()
-                Button("Later") { done() }.keyboardShortcut(.cancelAction)
+                Button("Later") { done() }.buttonStyle(.brandQuiet).keyboardShortcut(.cancelAction)
                 Button("Open \(entry.name)") {
                     NSWorkspace.shared.openApplication(at: URL(fileURLWithPath: entry.installedPath),
                                                        configuration: NSWorkspace.OpenConfiguration())
@@ -884,8 +884,8 @@ struct KeychainPromptPreview: View {
                 }
             }
         }
-        .padding(14)
-        .brandCard(radius: 12)
+        .padding(Space.card)
+        .brandCard(radius: Space.radius)
     }
 }
 
@@ -928,7 +928,7 @@ struct SeparateBrowserSheet: View {
     var body: some View {
         if ready, let built = store.config.apps.first(where: { $0.id == draftID }) {
             CopyReadyView(entry: built) { dismiss() }
-                .padding(20)
+                .padding(Space.sheet)
                 .frame(width: 520, height: 500)
         } else {
             form
@@ -940,13 +940,13 @@ struct SeparateBrowserSheet: View {
         let clash = FileManager.default.fileExists(atPath: "/Applications/\(trimmed).app")
             || store.config.apps.contains { $0.name == trimmed }
         let browserName = appName(browser.path)
-        VStack(alignment: .leading, spacing: 14) {
+        VStack(alignment: .leading, spacing: Space.group) {
             HStack {
                 Image(nsImage: appIcon(browser.path, size: 40))
                 Text("A separate \(browserName) for \(universe?.name ?? "")").font(Brand.heading(24)).tracking(-0.6)
             }
-            VStack(alignment: .leading, spacing: 4) {
-                Text("Name").font(.headline)
+            VStack(alignment: .leading, spacing: Space.label) {
+                SectionLabel("Name")
                 TextField("Name", text: $name).textFieldStyle(.roundedBorder)
                 if let problem = AppEntry.nameProblem(trimmed), !trimmed.isEmpty {
                     Text(problem).font(.caption).foregroundStyle(.red)
@@ -962,17 +962,17 @@ struct SeparateBrowserSheet: View {
             if let blocker {
                 Label("\(blocker) Instead it opens \(browserName) with its own profile: find \(trimmed.isEmpty ? "it" : trimmed) in Applications, Spotlight and the Multiverse menu, but its windows share \(browserName)'s Dock icon.",
                       systemImage: "info.circle")
-                    .font(.callout).foregroundStyle(.secondary)
+                    .font(.callout).foregroundStyle(Brand.muted)
             } else {
                 Label("A separate app with its own Dock icon. Find it in Applications, Spotlight and the Multiverse menu.",
                       systemImage: "macwindow.on.rectangle")
-                    .font(.callout).foregroundStyle(.secondary)
+                    .font(.callout).foregroundStyle(Brand.muted)
             }
             if let err = store.errors[draftID] { Text(err).font(.callout).foregroundStyle(.red) }
             Spacer()
             HStack {
                 Spacer()
-                Button("Cancel") { dismiss() }.keyboardShortcut(.cancelAction)
+                Button("Cancel") { dismiss() }.buttonStyle(.brandQuiet).keyboardShortcut(.cancelAction)
                 if store.busy.contains(draftID) {
                     ProgressView().controlSize(.small)
                 } else {
@@ -983,7 +983,7 @@ struct SeparateBrowserSheet: View {
                 }
             }
         }
-        .padding(20)
+        .padding(Space.sheet)
         .frame(width: 520, height: 500)
         .background(Brand.background)
         .tint(Brand.ink)
@@ -1026,13 +1026,13 @@ struct ChoiceCard: View {
                             .background(Capsule().fill(Brand.ink.opacity(0.15)))
                     }
                     Spacer()
-                    Image(systemName: "chevron.right").foregroundStyle(.secondary)
+                    Image(systemName: "chevron.right").foregroundStyle(Brand.muted)
                 }
-                Text(disabledReason ?? detail).font(.callout).foregroundStyle(.secondary)
+                Text(disabledReason ?? detail).font(.callout).foregroundStyle(Brand.muted)
             }
-            .padding(14)
+            .padding(Space.card)
             .frame(maxWidth: .infinity, alignment: .leading)
-            .brandCard(radius: 10)
+            .brandCard(radius: Space.radius)
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
