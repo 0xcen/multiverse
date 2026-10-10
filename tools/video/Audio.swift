@@ -134,51 +134,32 @@ extension Mixer {
 func filmSoundtrack() -> Mixer {
     var m = Mixer(seconds: T.duration)
 
-    // Cold open, the mess: a TV between channels. Static that surges, mains hum, the CRT whine,
-    // crackle, and channel flips that jump the static and catch fragments of broadcast. It builds,
-    // then switches off dead at the snap.
-    let messEnd = T.untangle - 0.05
-    var flutter = Noise(state: 4242)
-    let blocks = (0...Int(messEnd / 0.02)).map { _ in 0.55 + 0.45 * abs(flutter.next()) }  // per-20 ms gain wobble
-    var hiss = Noise(state: 9001)
-    var lpA = 0.0, lpB = 0.0
-    m.add(at: 0, length: messEnd, gain: 0.13) { t in
-        let n = hiss.next()
-        lpA += 0.5 * (n - lpA); lpB += 0.06 * (n - lpB)
-        let colour = 0.55 * (n - lpA) + 0.9 * lpA + 0.5 * lpB         // bright fizz over a rougher body
-        let surge = 0.75 + 0.25 * sin(2 * .pi * 3.1 * t)
-        let build = 0.55 + 0.45 * t / messEnd
-        let off = 1 - exp(-(messEnd - t) / 0.004)
-        return colour * blocks[min(blocks.count - 1, Int(t / 0.02))] * surge * build * off
+    // Cold open, the mess: deep space. A slowly beating sub rumble under an organ-like low chord in open
+    // fifths whose filter opens as it swells, rising into the snap, where it all cuts dead.
+    let messEnd = T.untangle - 0.04
+    func cut(_ t: Double) -> Double { 1 - exp(-(messEnd - t) / 0.006) }
+    m.add(at: 0, length: messEnd, gain: 0.1) { t in                        // sub rumble, beating
+        let fade = min(1, t / 0.35)
+        return (sin(2 * .pi * 34 * t) + 0.8 * sin(2 * .pi * 34.7 * t) + 0.35 * sin(2 * .pi * 51 * t)) * fade * cut(t)
     }
-    m.add(at: 0, length: messEnd, gain: 0.05) { t in                  // mains hum
-        (sin(2 * .pi * 60 * t) + 0.6 * sin(2 * .pi * 120 * t) + 0.35 * sin(2 * .pi * 180 * t)) * (1 - exp(-(messEnd - t) / 0.004))
-    }
-    m.add(at: 0, length: messEnd, gain: 0.012) { t in sin(2 * .pi * 15_734 * t) }  // CRT line whine
-    var crackle = Noise(state: 77)
-    for _ in 0..<70 {                                                     // crackle: sharp, sparse
-        let at = (crackle.next() + 1) / 2 * messEnd
-        m.click(at, pan: crackle.next() * 0.8, gain: 0.07 + 0.08 * abs(crackle.next()), seed: UInt64(abs(at * 1e6)), tone: 5200)
-    }
-    let flips = [0.16, 0.42, 0.63, 0.82, 0.98, 1.12, 1.22, 1.3]
-    for (i, at) in flips.enumerated() where at < messEnd {              // channel flips
-        var burst = Noise(state: UInt64(300 + i))
-        var lp = 0.0
-        let cutoff = [0.15, 0.4, 0.08, 0.6, 0.25, 0.5, 0.12, 0.35][i]
-        m.add(at: at, length: 0.07, pan: (Double(i % 3) - 1) * 0.4, gain: 0.18) { t in
-            lp += cutoff * (burst.next() - lp)
-            return lp * 1.8 * (1 - exp(-t / 0.002)) * exp(-t / 0.05)
-        }
-        // A fragment of whatever that channel was carrying: a tone or a voice-like buzz, cut off.
-        let f = [440.0, 1000, 213, 660, 312, 880, 250, 555][i]
-        m.add(at: at + 0.012, length: 0.06, pan: (Double(i % 3) - 1) * 0.4, gain: 0.05) { t in
-            sin(2 * .pi * f * t) * (0.5 + 0.5 * sin(2 * .pi * 31 * t)) * exp(-t / 0.04)
+    for (i, f) in [55.0, 82.41, 110, 164.81, 220].enumerated() {           // open fifths, opening up
+        var phase = 0.0, lp = 0.0
+        m.add(at: 0, length: messEnd, pan: [-0.6, 0.6, -0.3, 0.3, 0][i], gain: 0.05) { t in
+            phase += 2 * .pi * f * (1 + 0.002 * sin(2 * .pi * 0.7 * t)) / sampleRate
+            var v = 0.0
+            for h in 1...8 { v += sin(Double(h) * phase) / Double(h) }
+            let k = 1 - exp(-2 * .pi * (150 + 1400 * pow(t / messEnd, 2)) / sampleRate)
+            lp += k * (v - lp)
+            return lp * min(1, t / 0.5) * cut(t)
         }
     }
-    var zap = 0.0                                                         // switched off
-    m.add(at: messEnd - 0.02, length: 0.09, gain: 0.12) { t in
-        zap += 2 * .pi * (2200 * exp(-t / 0.018) + 70) / sampleRate
-        return sin(zap) * exp(-t / 0.03)
+    var riser = Noise(state: 613)
+    var rl = 0.0
+    m.add(at: 0.35, length: messEnd - 0.35, gain: 0.2) { t in              // swell from below into the snap
+        let x = t / (messEnd - 0.35)
+        let k = 1 - exp(-2 * .pi * (120 + 2600 * x * x) / sampleRate)
+        rl += k * (riser.next() - rl)
+        return rl * pow(x, 2.2) * cut(0.35 + t)
     }
 
     // The snap: a low hit, then the tiles landing in order as a quick rising run.

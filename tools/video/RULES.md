@@ -41,8 +41,8 @@ animation.
 Sound (`Audio.swift`): the first score, kept on purpose. A quiet chord pad per act (Am-ish, then F, then
 Cmaj7 at the end) under dry cues: pops and ticks for things appearing, a mouse click, a tone that rises
 while a link travels, a chime where it lands (different pitch per universe), a whoosh into the icon and
-one low hit when it lands. The cold-open mess is a TV between channels (static surges, mains hum, CRT
-whine, crackle, channel flips with broadcast fragments) that switches off dead at the snap.
+one low hit when it lands. The cold-open mess is deep space: a slowly beating sub rumble under an organ-like
+low chord in open fifths that opens up and swells into the snap, where it cuts dead.
 
 Pace: entrances under 0.35 s (`snap`), pops land with a small overshoot (`pop`), hard cuts between
 beats. Sound is restrained: a quiet pad, dry clicks/pops, a rising tone while a link travels, a chime
