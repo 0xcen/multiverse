@@ -18,6 +18,15 @@ in them, and:
 macOS has one default browser for everything. Multiverse becomes that default browser, looks at
 which app the link came from, and passes it on.
 
+## Private by design
+
+Multiverse runs entirely on your Mac. It has no account, no telemetry, no analytics and no update
+checks, and it never connects to the internet. Links are passed straight from one app to another;
+the log keeps only the sending app and the link's host, and it stays in `~/Library/Logs`.
+
+It's MIT licensed and small enough to read in an afternoon, so read the code, and change or extend
+it for your own setup.
+
 ## Install with your coding agent (easiest)
 
 No Apple developer account or certificates needed. Multiverse builds on your Mac and signs itself
@@ -129,4 +138,4 @@ above.
 
 ## License
 
-MIT
+MIT. See [LICENSE](LICENSE).
