@@ -448,7 +448,7 @@ func installedBrowsers() -> [URL] {
     let me = Bundle.main.bundleURL.standardizedFileURL
     return NSWorkspace.shared.urlsForApplications(toOpen: URL(string: "https://example.com")!)
         .map(\.standardizedFileURL)
-        .filter { $0 != me }
+        .filter { $0 != me && Bundle(url: $0)?.bundleIdentifier != "io.github.0xcen.multiverse" }
         .sorted { appName($0.path) < appName($1.path) }
 }
 
@@ -463,12 +463,11 @@ struct InstalledApp: Identifiable, Hashable {
 
 func installedApps(excluding config: Config) -> [InstalledApp] {
     let made = Set(config.apps.filter { $0.kind != .original }.map { URL(fileURLWithPath: $0.installedPath).standardizedFileURL })
-    let dirs = ["/Applications", "/Applications/Utilities", "/System/Applications", "/System/Applications/Utilities",
-                NSHomeDirectory() + "/Applications"]
+    let dirs = ["/Applications", "/System/Applications", NSHomeDirectory() + "/Applications"]
     var out: [InstalledApp] = []
     for dir in dirs {
         let items = (try? FileManager.default.contentsOfDirectory(atPath: dir)) ?? []
-        for item in items where item.hasSuffix(".app") {
+        for item in items where item.hasSuffix(".app") && !item.hasPrefix(".") {
             let url = URL(fileURLWithPath: dir).appendingPathComponent(item).standardizedFileURL
             guard !made.contains(url), url != Bundle.main.bundleURL.standardizedFileURL else { continue }
             out.append(InstalledApp(url: url))
