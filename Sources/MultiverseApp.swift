@@ -247,6 +247,23 @@ let menuBarIcon: NSImage = {
     guard let w = settingsWindow, w.isVisible else { return }
     w.orderOut(nil)
     NSApp.hide(nil)
+    updateActivationPolicy()
+}
+
+/// With a window open, Multiverse shows in the Dock and Cmd-Tab like a normal app; otherwise it
+/// lives only in the menu bar.
+@MainActor func updateActivationPolicy() {
+    let windowOpen = NSApp.windows.contains { $0.isVisible && $0.styleMask.contains(.titled) && $0.canBecomeMain }
+    let policy: NSApplication.ActivationPolicy = windowOpen ? .regular : .accessory
+    if NSApp.activationPolicy() != policy { NSApp.setActivationPolicy(policy) }
+}
+
+/// Call once a window is created: re-evaluate when it closes.
+@MainActor func trackForActivationPolicy(_ window: NSWindow) {
+    NotificationCenter.default.addObserver(forName: NSWindow.willCloseNotification, object: window, queue: .main) { _ in
+        // The window is still visible during willClose; check right after.
+        DispatchQueue.main.async { MainActor.assumeIsolated { updateActivationPolicy() } }
+    }
 }
 
 @MainActor func showSettings() {
@@ -264,7 +281,9 @@ let menuBarIcon: NSImage = {
         window.center()
         window.setFrameAutosaveName("MultiverseSettings")
         settingsWindow = window
+        trackForActivationPolicy(window)
     }
+    NSApp.setActivationPolicy(.regular)
     NSApp.activate()
     settingsWindow?.makeKeyAndOrderFront(nil)
     // Don't start with a cursor in the first text field.

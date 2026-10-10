@@ -50,6 +50,7 @@ private let onboardedKey = "onboardingCompleted"
             UserDefaults.standard.set(true, forKey: onboardedKey)
             onboardingWindow?.close()
             onboardingWindow = nil
+            updateActivationPolicy()
             Store.shared.showUniverse = universe
             showSettings()
         }.environmentObject(Store.shared))
@@ -57,7 +58,9 @@ private let onboardedKey = "onboardingCompleted"
         window.isReleasedWhenClosed = false
         window.center()
         onboardingWindow = window
+        trackForActivationPolicy(window)
     }
+    NSApp.setActivationPolicy(.regular)
     NSApp.activate()
     onboardingWindow?.makeKeyAndOrderFront(nil)
     onboardingWindow?.orderFrontRegardless()
