@@ -30,6 +30,9 @@ enum Automation {
 }
 
 private let onboardedKey = "onboardingCompleted"
+/// The step setup was on, so it can pick up there after macOS quits and reopens Multiverse
+/// (it does that when you turn on a permission like App Management).
+private let resumeStepKey = "onboardingResumeStep"
 
 /// First launch shows setup; afterwards it's in the menu.
 @MainActor func showOnboardingIfNeeded() -> Bool {
@@ -46,8 +49,10 @@ private let onboardedKey = "onboardingCompleted"
                               styleMask: [.titled, .closable, .fullSizeContentView], backing: .buffered, defer: false)
         window.titlebarAppearsTransparent = true
         window.title = "Set up Multiverse"
-        window.contentViewController = NSHostingController(rootView: OnboardingView { universe in
+        let resume = UserDefaults.standard.integer(forKey: resumeStepKey)
+        window.contentViewController = NSHostingController(rootView: OnboardingView(startAt: resume) { universe in
             UserDefaults.standard.set(true, forKey: onboardedKey)
+            UserDefaults.standard.removeObject(forKey: resumeStepKey)
             onboardingWindow?.close()
             onboardingWindow = nil
             updateActivationPolicy()
@@ -96,6 +101,11 @@ struct OnboardingView: View {
             }
             .environmentObject(setup)
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+            .onChange(of: step) { _, step in
+                // Only resume past the universes step once they're saved; building restarts at permissions.
+                let resume: Step = step == .build ? .permissions : step
+                UserDefaults.standard.set(resume.rawValue, forKey: resumeStepKey)
+            }
 
             Divider().padding(.horizontal, -32).padding(.bottom, 14)
             HStack {
