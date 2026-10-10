@@ -138,3 +138,12 @@ enum Log {
         }
     }
 }
+
+func appName(_ path: String) -> String {
+    let p = expand(path)
+    if let b = Bundle(url: URL(fileURLWithPath: p)),
+       let n = b.localizedInfoDictionary?["CFBundleDisplayName"] as? String ?? b.infoDictionary?["CFBundleDisplayName"] as? String {
+        return n
+    }
+    return ((p as NSString).lastPathComponent as NSString).deletingPathExtension
+}

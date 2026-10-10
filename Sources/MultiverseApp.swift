@@ -182,8 +182,10 @@ struct MultiverseApp: App {
     @StateObject private var store = Store.shared
 
     var body: some Scene {
-        MenuBarExtra("Multiverse", systemImage: "circle.hexagongrid.circle") {
+        MenuBarExtra {
             MenuContent().environmentObject(store)
+        } label: {
+            Image(nsImage: menuBarIcon)
         }
 
     }
@@ -228,6 +230,15 @@ struct MenuContent: View {
 /// Settings lives in a plain NSWindow we own: SwiftUI's Settings scene can't be opened reliably
 /// from a menu bar app (or from AppKit callbacks like reopen).
 @MainActor private var settingsWindow: NSWindow?
+
+/// Template image so macOS tints it for light/dark menu bars and the highlighted state.
+let menuBarIcon: NSImage = {
+    let image = Bundle.main.image(forResource: "MenuBarIcon") ?? NSImage(systemSymbolName: "square.stack", accessibilityDescription: nil)!
+    image.size = NSSize(width: 18, height: 18)
+    image.isTemplate = true
+    image.accessibilityDescription = "Multiverse"
+    return image
+}()
 
 @MainActor func closeSettings() {
     guard let w = settingsWindow, w.isVisible else { return }

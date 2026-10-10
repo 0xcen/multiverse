@@ -49,6 +49,20 @@ enum Builder {
         }
     }
 
+    /// Why an app can't run as a copy, if it can't: iCloud only works in an app signed by its own
+    /// developer, so a re-signed copy of an app that uses it (e.g. Arc) crashes.
+    static func copyBlocker(_ app: URL) -> String? {
+        if app.path.hasPrefix("/System/") { return "macOS doesn't allow copies of its built-in apps." }
+        guard let xml = try? run("/usr/bin/codesign", ["-d", "--entitlements", ":-", app.path]),
+              let data = xml.data(using: .utf8),
+              let ents = try? PropertyListSerialization.propertyList(from: data, format: nil) as? [String: Any]
+        else { return nil }
+        if ents.keys.contains(where: { $0.hasPrefix("com.apple.developer.icloud") || $0.hasPrefix("com.apple.developer.ubiquity") }) {
+            return "\(appName(app.path)) uses iCloud, which only works in the original app, so a copy would crash."
+        }
+        return nil
+    }
+
     /// Apps registered to open web links.
     static func isBrowser(_ app: URL) -> Bool {
         NSWorkspace.shared.urlsForApplications(toOpen: URL(string: "https://example.com")!)
@@ -86,6 +100,7 @@ enum Builder {
         let src = URL(fileURLWithPath: expand(entry.sourcePath))
         guard fm.fileExists(atPath: src.path) else { throw BuildError.missingSource(src.path) }
         if entry.kind == .clone, src.path.hasPrefix("/System/") { throw BuildError.systemApp }
+        if entry.kind == .clone, let reason = copyBlocker(src) { throw BuildError.tool(reason) }
         if entry.kind == .clone, entry.dataDir == nil, entry.env.isEmpty, supportsProfiles(src) {
             entry.dataDir = defaultDataDir(for: entry.name)
         }

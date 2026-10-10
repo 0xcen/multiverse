@@ -11,6 +11,7 @@ swiftc -O -parse-as-library -target x86_64-apple-macos14.0 Sources/*.swift -o "$
 lipo -create "$APP/Contents/MacOS/Multiverse-arm64" "$APP/Contents/MacOS/Multiverse-x86_64" -output "$APP/Contents/MacOS/Multiverse"
 rm "$APP/Contents/MacOS/Multiverse-"*
 cp Info.plist "$APP/Contents/Info.plist"
+cp Resources/* "$APP/Contents/Resources/"
 codesign --force -s - "$APP"
 echo "Built $APP"
 

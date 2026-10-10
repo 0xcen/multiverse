@@ -1,3 +1,5 @@
+<p align="center"><img src="docs/icon.png" width="128" alt="Multiverse icon"></p>
+
 # Multiverse
 
 Keep work and personal apart on one Mac, even inside the same app.

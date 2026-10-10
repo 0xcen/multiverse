@@ -86,7 +86,7 @@ struct RoutingBanner: View {
 struct ContentUnavailable: View {
     var body: some View {
         VStack(spacing: 8) {
-            Image(systemName: "circle.hexagongrid").font(.system(size: 40)).foregroundStyle(.secondary)
+            Image(nsImage: NSApp.applicationIconImage).resizable().frame(width: 64, height: 64)
             Text("Create a universe, like Work or Personal.").font(.headline)
             Text("Put apps in it, and links you open from those apps go to that universe's browser.")
                 .foregroundStyle(.secondary)
@@ -452,14 +452,6 @@ func installedBrowsers() -> [URL] {
         .sorted { appName($0.path) < appName($1.path) }
 }
 
-func appName(_ path: String) -> String {
-    let p = expand(path)
-    if let b = Bundle(url: URL(fileURLWithPath: p)),
-       let n = b.localizedInfoDictionary?["CFBundleDisplayName"] as? String ?? b.infoDictionary?["CFBundleDisplayName"] as? String {
-        return n
-    }
-    return ((p as NSString).lastPathComponent as NSString).deletingPathExtension
-}
 
 // MARK: - Add app
 
@@ -557,7 +549,7 @@ struct AddAppSheet: View {
     private var how: some View {
         let a = app!
         let elsewhere = universeUsing(a)
-        let systemApp = a.url.path.hasPrefix("/System/")
+        let blocker = Builder.copyBlocker(a.url)
         let ownLogins = Builder.supportsProfiles(a.url)
         return VStack(alignment: .leading, spacing: 14) {
             HStack {
@@ -574,11 +566,22 @@ struct AddAppSheet: View {
                 title: "Make a separate copy for \(universe.name)",
                 detail: "A second \(a.name) with its own name, Dock icon"
                     + (ownLogins ? " and its own logins." : ". It will share logins with the original."),
-                disabledReason: systemApp ? "macOS doesn't allow copies of its built-in apps." : nil,
+                disabledReason: blocker,
                 recommended: elsewhere != nil
             ) {
                 name = "\(universe.name) \(a.name)"
                 step = .copy
+            }
+            if blocker != nil && ownLogins {
+                ChoiceCard(
+                    title: "Make a separate \(a.name) profile for \(universe.name)",
+                    detail: "Its own logins and data, opened from a \(universe.name) \(a.name) app in Applications and Spotlight. Its windows share \(a.name)'s Dock icon.",
+                    disabledReason: nil,
+                    recommended: elsewhere != nil
+                ) {
+                    name = "\(universe.name) \(a.name)"
+                    step = .copy
+                }
             }
             Spacer()
             HStack {
@@ -597,7 +600,7 @@ struct AddAppSheet: View {
             || store.config.apps.contains { $0.name == trimmed }
         let ownLogins = Builder.supportsProfiles(a.url)
         return VStack(alignment: .leading, spacing: 14) {
-            Text("Your copy of \(a.name)").font(.title2.bold())
+            Text(Builder.copyBlocker(a.url) == nil ? "Your copy of \(a.name)" : "Your \(a.name) profile").font(.title2.bold())
             VStack(alignment: .leading, spacing: 4) {
                 Text("Name").font(.headline)
                 TextField("Name", text: $name).textFieldStyle(.roundedBorder)
@@ -626,7 +629,9 @@ struct AddAppSheet: View {
                     ProgressView().controlSize(.small)
                 } else {
                     Button("Create \(trimmed)") {
-                        var e = AppEntry(name: trimmed, kind: .clone, sourcePath: a.url.path, universeID: universe.id)
+                        let asProfile = Builder.copyBlocker(a.url) != nil
+                        var e = AppEntry(name: trimmed, kind: asProfile ? .launcher : .clone, sourcePath: a.url.path,
+                                         universeID: universe.id, dataDir: asProfile ? Builder.defaultDataDir(for: trimmed) : nil)
                         e.id = draftID
                         e.icon = icon
                         store.build(e) { ok in
@@ -812,8 +817,10 @@ struct SeparateBrowserSheet: View {
     @State private var icon = IconStyle.tint
     @State private var draftID = UUID()
     @State private var ready = false
+    private let blocker: String?
 
     init(browser: URL, universe: Universe, suggestedName: String) {
+        self.blocker = Builder.copyBlocker(browser)
         self.browser = browser
         self.universeID = universe.id
         _name = State(initialValue: suggestedName)
@@ -855,9 +862,15 @@ struct SeparateBrowserSheet: View {
             Label("Its own logins, history and extensions, separate from your other \(browserName).",
                   systemImage: "checkmark.circle")
                 .font(.callout).foregroundStyle(.green)
-            Label("A separate app with its own Dock icon. Find it in Applications, Spotlight and the Multiverse menu.",
-                  systemImage: "macwindow.on.rectangle")
-                .font(.callout).foregroundStyle(.secondary)
+            if let blocker {
+                Label("\(blocker) Instead it opens \(browserName) with its own profile: find \(trimmed.isEmpty ? "it" : trimmed) in Applications, Spotlight and the Multiverse menu, but its windows share \(browserName)'s Dock icon.",
+                      systemImage: "info.circle")
+                    .font(.callout).foregroundStyle(.secondary)
+            } else {
+                Label("A separate app with its own Dock icon. Find it in Applications, Spotlight and the Multiverse menu.",
+                      systemImage: "macwindow.on.rectangle")
+                    .font(.callout).foregroundStyle(.secondary)
+            }
             if let err = store.errors[draftID] { Text(err).font(.callout).foregroundStyle(.red) }
             Spacer()
             HStack {
@@ -878,13 +891,19 @@ struct SeparateBrowserSheet: View {
     }
 
     private func create(_ name: String) {
-        var entry = AppEntry(name: name, kind: .clone, sourcePath: browser.path, universeID: universeID, icon: icon)
+        // A real copy when the browser allows it; otherwise a separate profile of the original.
+        let asProfile = blocker != nil
+        let dataDir = asProfile ? Builder.defaultDataDir(for: name) : nil
+        var entry = AppEntry(name: name, kind: asProfile ? .launcher : .clone, sourcePath: browser.path,
+                             universeID: universeID, dataDir: dataDir, icon: icon)
         entry.id = draftID
-        let universeID = universeID, appPath = entry.installedPath
+        let universeID = universeID, target = asProfile
+            ? BrowserTarget(appPath: browser.path, dataDir: dataDir)
+            : BrowserTarget(appPath: entry.installedPath)
         store.build(entry) { ok in
             guard ok else { return }
             if let i = store.config.universes.firstIndex(where: { $0.id == universeID }) {
-                store.config.universes[i].browser = BrowserTarget(appPath: appPath)
+                store.config.universes[i].browser = target
             }
             ready = true
         }
