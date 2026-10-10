@@ -73,10 +73,10 @@ struct RoutingBanner: View {
     var body: some View {
         HStack {
             Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(.yellow)
-            Text("Links aren't being routed yet. Multiverse needs to be your default browser; it passes each link on to the right one.")
+            Text("Links aren't being routed yet. Finish setup to let Multiverse pass each link to the right browser.")
                 .font(.callout)
             Spacer()
-            Button("Turn on") { store.makeDefaultBrowser() }
+            Button("Finish setup") { showOnboarding() }
         }
         .padding(10)
         .background(.yellow.opacity(0.12))

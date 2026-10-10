@@ -166,7 +166,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
-        if Store.shared.config.universes.isEmpty { showSettings() }
+        if !showOnboardingIfNeeded(), Store.shared.config.universes.isEmpty { showSettings() }
     }
 
     /// Local .html files and the like go to the default universe.
@@ -196,7 +196,7 @@ struct MenuContent: View {
 
     var body: some View {
         if !store.routingOn {
-            Button("⚠︎ Links aren't being routed – turn on…") { store.makeDefaultBrowser() }
+            Button("⚠︎ Links aren't being routed – finish setup…") { showOnboarding() }
             Divider()
         }
         ForEach(store.config.universes) { u in
@@ -222,6 +222,7 @@ struct MenuContent: View {
         }
         Button("Settings…") { showSettings() }
             .keyboardShortcut(",")
+        Button("Setup & permissions…") { showOnboarding() }
         Divider()
         Button("Quit Multiverse") { NSApp.terminate(nil) }.keyboardShortcut("q")
     }

@@ -51,23 +51,30 @@ enum Router {
             NSRunningApplication(processIdentifier: running.pid)?.activate(options: [.activateAllWindows])
             return
         }
-        guard let exe = Bundle(url: appURL)?.executableURL else { return }
-        let p = Process()
-        p.executableURL = exe
-        p.arguments = ["--user-data-dir=\(expand(dataDir))"]
-        do { try p.run() } catch {
-            Log.write("could not start \(target.appPath): \(error)")
-            NSWorkspace.shared.open(urls, withApplicationAt: appURL, configuration: NSWorkspace.OpenConfiguration())
-            return
+        // Start the profile through LaunchServices (some browsers, like Arc, relaunch themselves
+        // without the profile flag when started any other way), then hand over the link once that
+        // profile's process is up and has stayed up.
+        let config = NSWorkspace.OpenConfiguration()
+        config.arguments = ["--user-data-dir=\(expand(dataDir))"]
+        config.createsNewApplicationInstance = true
+        config.activates = true
+        NSWorkspace.shared.openApplication(at: appURL, configuration: config) { _, error in
+            if let error { Log.write("could not start \(target.appPath) profile: \(error.localizedDescription)") }
         }
         DispatchQueue.global().async {
-            for _ in 0..<40 {
-                Thread.sleep(forTimeInterval: 0.25)
-                guard let pid = runningInstances(of: target.appPath, dataDir: dataDir).first?.pid else { continue }
-                Thread.sleep(forTimeInterval: 2)  // let the first window come up
+            var seen: pid_t?
+            for _ in 0..<60 {
+                Thread.sleep(forTimeInterval: 0.5)
+                guard let pid = runningInstances(of: target.appPath, dataDir: dataDir).first?.pid else { seen = nil; continue }
+                if seen != pid { seen = pid; continue }  // wait one more tick: same process still there
+                Thread.sleep(forTimeInterval: 1.5)      // let its first window come up
                 DispatchQueue.main.async {
-                    urls.forEach { sendGetURL($0, to: pid) }
-                    NSRunningApplication(processIdentifier: pid)?.activate(options: [.activateAllWindows])
+                    guard let live = runningInstances(of: target.appPath, dataDir: dataDir).first?.pid else {
+                        Log.write("\(target.appPath) profile quit before the link could be handed over")
+                        return
+                    }
+                    urls.forEach { sendGetURL($0, to: live) }
+                    NSRunningApplication(processIdentifier: live)?.activate(options: [.activateAllWindows])
                 }
                 return
             }
