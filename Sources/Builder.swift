@@ -1,4 +1,5 @@
 import AppKit
+import Security
 
 enum BuildError: LocalizedError {
     case running(String), missingSource(String), tool(String), notOurs(String), systemApp
@@ -40,7 +41,26 @@ enum Builder {
 
     /// True for apps that accept `--user-data-dir` (Electron apps and Chromium-based browsers), so a copy
     /// can keep its own logins with no setup.
+    /// Results per app path, keyed with the app's modification date so an update re-checks.
+    private static let cacheLock = NSLock()
+    nonisolated(unsafe) private static var profileCache: [String: (Date?, Bool)] = [:]
+    nonisolated(unsafe) private static var blockerCache: [String: (Date?, String?)] = [:]
+
+    private static func modified(_ app: URL) -> Date? {
+        (try? FileManager.default.attributesOfItem(atPath: app.path))?[.modificationDate] as? Date
+    }
+
     static func supportsProfiles(_ app: URL) -> Bool {
+        let date = modified(app)
+        cacheLock.lock()
+        if let (d, v) = profileCache[app.path], d == date { cacheLock.unlock(); return v }
+        cacheLock.unlock()
+        let v = computeSupportsProfiles(app)
+        cacheLock.lock(); profileCache[app.path] = (date, v); cacheLock.unlock()
+        return v
+    }
+
+    private static func computeSupportsProfiles(_ app: URL) -> Bool {
         let frameworks = (try? FileManager.default.contentsOfDirectory(
             atPath: app.appendingPathComponent("Contents/Frameworks").path)) ?? []
         return frameworks.contains { f in
@@ -53,14 +73,31 @@ enum Builder {
     /// developer, so a re-signed copy of an app that uses it (e.g. Arc) crashes.
     static func copyBlocker(_ app: URL) -> String? {
         if app.path.hasPrefix("/System/") { return "macOS doesn't allow copies of its built-in apps." }
-        guard let xml = try? run("/usr/bin/codesign", ["-d", "--entitlements", ":-", app.path]),
-              let data = xml.data(using: .utf8),
-              let ents = try? PropertyListSerialization.propertyList(from: data, format: nil) as? [String: Any]
-        else { return nil }
+        let date = modified(app)
+        cacheLock.lock()
+        if let (d, v) = blockerCache[app.path], d == date { cacheLock.unlock(); return v }
+        cacheLock.unlock()
+        let v = computeCopyBlocker(app)
+        cacheLock.lock(); blockerCache[app.path] = (date, v); cacheLock.unlock()
+        return v
+    }
+
+    private static func computeCopyBlocker(_ app: URL) -> String? {
+        let ents = entitlements(of: app)
         if ents.keys.contains(where: { $0.hasPrefix("com.apple.developer.icloud") || $0.hasPrefix("com.apple.developer.ubiquity") }) {
             return "\(appName(app.path)) uses iCloud, which only works in the original app, so a copy would crash."
         }
         return nil
+    }
+
+    /// An app's entitlements, read in-process (much faster than running codesign per app).
+    static func entitlements(of app: URL) -> [String: Any] {
+        var code: SecStaticCode?
+        guard SecStaticCodeCreateWithPath(app as CFURL, [], &code) == errSecSuccess, let code else { return [:] }
+        var info: CFDictionary?
+        guard SecCodeCopySigningInformation(code, SecCSFlags(rawValue: kSecCSSigningInformation), &info) == errSecSuccess,
+              let dict = info as? [String: Any] else { return [:] }
+        return dict[kSecCodeInfoEntitlementsDict as String] as? [String: Any] ?? [:]
     }
 
     /// Apps registered to open web links.

@@ -270,8 +270,14 @@ let menuBarIcon: NSImage = {
     settingsWindow?.orderFrontRegardless()  // menu bar apps can be refused activation; still show it on top
 }
 
+private let iconCache = NSCache<NSString, NSImage>()
+
+/// An app's icon at a size, cached (SwiftUI asks for it on every redraw).
 func appIcon(_ path: String, size: CGFloat) -> NSImage {
+    let key = "\(path)|\(size)" as NSString
+    if let cached = iconCache.object(forKey: key) { return cached }
     let img = NSWorkspace.shared.icon(forFile: expand(path))
     img.size = NSSize(width: size, height: size)
+    iconCache.setObject(img, forKey: key)
     return img
 }

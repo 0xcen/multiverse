@@ -87,6 +87,7 @@ struct OnboardingView: View {
             }
             .environmentObject(setup)
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+            .task { setup.loadApps(store.config) }
 
             Divider().padding(.horizontal, -32).padding(.bottom, 14)
             HStack {
@@ -212,6 +213,15 @@ private struct Point: View {
     @Published var placements: [String: Placement] = [:]
     @Published var tasks: [Task] = []
     @Published var building = false
+    /// Installed apps for the Apps step, loaded in the background as soon as setup opens.
+    @Published var appRows: [AppsStep.Row]?
+
+    func loadApps(_ config: Config) {
+        guard appRows == nil else { return }
+        _Concurrency.Task {
+            appRows = await _Concurrency.Task.detached { AppsStep.load(config) }.value
+        }
+    }
 
     init(config: Config) {
         fresh = config.universes.isEmpty
@@ -486,82 +496,95 @@ private struct DraftCard: View {
 
 // MARK: Step 5 – permissions – apps
 
-private struct AppsStep: View {
+struct AppsStep: View {
     @EnvironmentObject var store: Store
     @EnvironmentObject var setup: SetupModel
-    @State private var apps: [InstalledApp] = []
     @State private var search = ""
 
+    private var apps: [Row] { setup.appRows ?? [] }
+    private var loading: Bool { setup.appRows == nil }
+
+    /// Everything a row needs, worked out once off the main thread so typing in search stays instant.
+    struct Row: Identifiable {
+        let path: String
+        let name: String
+        let icon: NSImage
+        let suggested: Bool
+        let canCopy: Bool
+        var id: String { path }
+    }
+
     var body: some View {
+        let shown = search.isEmpty ? apps : apps.filter { $0.name.localizedCaseInsensitiveContains(search) }
         VStack(alignment: .leading, spacing: 12) {
             Text("Your apps").font(.largeTitle.bold())
             Text("Links you open in an app go to its universe's browser. Pick “\(bothLabel)” for an app you use in each: you keep the original and get a separate copy with its own logins.")
                 .foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
             TextField("Search apps", text: $search).textFieldStyle(.roundedBorder)
-            List {
-                let shown = apps.filter { search.isEmpty || $0.name.localizedCaseInsensitiveContains(search) }
-                let suggested = shown.filter(isSuggested)
-                if !suggested.isEmpty {
-                    Section("Suggested") { ForEach(suggested) { row($0) } }
+            if loading {
+                ProgressView("Looking at your apps…").frame(maxWidth: .infinity, maxHeight: .infinity)
+            } else if shown.isEmpty {
+                Text("No apps match “\(search)”.").foregroundStyle(.secondary).frame(maxWidth: .infinity, maxHeight: .infinity)
+            } else {
+                List {
+                    let suggested = shown.filter(\.suggested)
+                    if !suggested.isEmpty {
+                        Section("Suggested") { ForEach(suggested) { row($0) } }
+                    }
+                    let others = shown.filter { !$0.suggested }
+                    if !others.isEmpty {
+                        Section(suggested.isEmpty ? "Apps" : "Other apps") { ForEach(others) { row($0) } }
+                    }
                 }
-                Section(suggested.isEmpty ? "Apps" : "Other apps") {
-                    ForEach(shown.filter { !isSuggested($0) }) { row($0) }
-                }
-            }
-            .listStyle(.inset)
-        }
-        .onAppear {
-            let config = store.config
-            _Concurrency.Task.detached {
-                let found = installedApps(excluding: config).filter { app in
-                    !config.apps.contains { expand($0.sourcePath) == app.url.path }   // already set up
-                }
-                await MainActor.run { apps = found.filter { !installedBrowsers().contains($0.url) } }
+                .listStyle(.inset)
             }
         }
+        .task { setup.loadApps(store.config) }
+    }
+
+    nonisolated static func load(_ config: Config) -> [Row] {
+        let browsers = Set(installedBrowsers().map(\.path))
+        return installedApps(excluding: config)
+            .filter { app in
+                !browsers.contains(app.url.path) && !config.apps.contains { expand($0.sourcePath) == app.url.path }
+            }
+            .map { a in
+                let profiles = Builder.supportsProfiles(a.url)
+                let blocked = Builder.copyBlocker(a.url) != nil
+                return Row(path: a.url.path, name: a.name, icon: appIcon(a.url.path, size: 22),
+                           suggested: common.contains(a.name) || (!a.url.path.hasPrefix("/System/") && profiles),
+                           canCopy: !blocked || profiles)
+            }
     }
 
     private var bothLabel: String { store.config.universes.count > 2 ? "Every universe" : "Both" }
 
     /// Apps people commonly split between work and personal: chat, mail, notes, meetings, and
     /// Electron apps generally (they can get separate logins).
-    private static let common: Set<String> = [
+    nonisolated private static let common: Set<String> = [
         "Slack", "Discord", "Telegram", "WhatsApp", "Signal", "Messages", "Mail", "Messenger", "Microsoft Teams",
         "Zoom", "zoom.us", "Notion", "Notion Calendar", "Linear", "Figma", "Spotify", "Superhuman", "Spark",
         "Obsidian", "Craft", "Things3", "Todoist", "Cursor", "Visual Studio Code", "Microsoft Outlook",
         "Gmail", "Calendar", "Notes", "Granola", "Loom", "Asana", "ClickUp", "Trello", "Airtable", "1Password",
     ]
 
-    private func isSuggested(_ a: InstalledApp) -> Bool {
-        Self.common.contains(a.name) || (!a.url.path.hasPrefix("/System/") && Builder.supportsProfiles(a.url))
-    }
-
-    private func row(_ a: InstalledApp) -> some View {
+    private func row(_ a: Row) -> some View {
         HStack {
-            Image(nsImage: appIcon(a.url.path, size: 22))
+            Image(nsImage: a.icon)
             Text(a.name)
             Spacer()
-            Picker("", selection: binding(for: a)) {
+            Picker("", selection: Binding(get: { setup.placements[a.path] }, set: { setup.placements[a.path] = $0 })) {
                 Text("Not included").tag(Optional<SetupModel.Placement>.none)
                 ForEach(store.config.universes) { u in
                     Text("\(u.emoji) \(u.name)").tag(Optional(SetupModel.Placement.universe(u.id)))
                 }
-                if store.config.universes.count > 1 && canCopy(a) {
+                if store.config.universes.count > 1 && a.canCopy {
                     Text(bothLabel).tag(Optional(SetupModel.Placement.every))
                 }
             }
             .labelsHidden()
             .fixedSize()
         }
-    }
-
-    private func canCopy(_ a: InstalledApp) -> Bool {
-        Builder.copyBlocker(a.url) == nil || Builder.supportsProfiles(a.url)
-    }
-
-    private func binding(for a: InstalledApp) -> Binding<SetupModel.Placement?> {
-        Binding(get: { setup.placements[a.url.path] },
-                set: { setup.placements[a.url.path] = $0 })
     }
 }
 
