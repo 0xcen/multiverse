@@ -124,6 +124,13 @@ browser. The user should click **Allow**.
 Multiverse adds itself to the login items the first time it runs from /Applications, so it starts
 when the user logs in. They can switch that off with **Open at login** in its menu bar menu.
 
+Some apps own their own links: macOS sends those links (for example notion.so links, which go to
+Notion) straight to the original app, without going through the default browser. If the user has such an app, tell them to open the **original** app and turn off its setting for opening links in the
+app (in Notion: Settings → **Open links in desktop app**). Notion then hands those links to
+Multiverse, which opens each one in the browser of the universe it was clicked in. Settings shows a
+note on the app's row until Multiverse sees this working. Notion's "Open in app" button (`notion://`)
+is handled automatically: it opens the Notion copy in the universe of the browser it was clicked in.
+
 ## 7. Verify
 
 ```bash

@@ -6,6 +6,8 @@ struct RouteRecord: Identifiable {
     let opener: String
     let universe: String
     let host: String
+    /// The app the link opened in, when the universe sends links to the apps that own them.
+    var app: String? = nil
 }
 
 /// Decides which universe a link belongs to and opens it in that universe's browser.
@@ -33,6 +35,40 @@ enum Router {
             return ("\(e.name) (\(name))", u)
         }
         return (name, config.defaultUniverse)
+    }
+
+    // MARK: Apps that own links
+
+    private static var hostCache: [String: (Date?, Set<String>)] = [:]
+    private static let hostLock = NSLock()
+
+    /// Hosts an installed app claims as universal links (`applinks:` associated domains), e.g.
+    /// Notion's www.notion.so. macOS hands these links to that app before the default browser.
+    static func linkHosts(ofApp path: String) -> Set<String> {
+        let p = expand(path)
+        let date = (try? FileManager.default.attributesOfItem(atPath: p))?[.modificationDate] as? Date
+        hostLock.lock()
+        if let (d, v) = hostCache[p], d == date { hostLock.unlock(); return v }
+        hostLock.unlock()
+        let domains = Builder.entitlements(of: URL(fileURLWithPath: p))["com.apple.developer.associated-domains"] as? [String] ?? []
+        let hosts = Set(domains.compactMap { d -> String? in
+            guard d.hasPrefix("applinks:") else { return nil }
+            let h = d.dropFirst("applinks:".count).split(separator: "?").first.map(String.init) ?? ""
+            return h.isEmpty ? nil : h.lowercased()
+        })
+        hostLock.lock(); hostCache[p] = (date, hosts); hostLock.unlock()
+        return hosts
+    }
+
+    /// Copies lose the entitlement when re-signed, so ask the original.
+    static func linkHosts(of entry: AppEntry) -> Set<String> { linkHosts(ofApp: entry.sourcePath) }
+
+    static func matches(_ host: String, _ claimed: Set<String>) -> Bool {
+        let h = host.lowercased()
+        return claimed.contains { c in
+            if c.hasPrefix("*.") { return h.hasSuffix(c.dropFirst(1)) }
+            return h == c || (c.hasPrefix("www.") && h == c.dropFirst(4))
+        }
     }
 
     static func open(_ urls: [URL], in target: BrowserTarget) {
@@ -80,6 +116,78 @@ enum Router {
             }
             Log.write("\(target.appPath) profile did not start")
         }
+    }
+
+
+    /// The app in `universe` set to open links it owns, other than the app that sent the link.
+    static func owner(of url: URL, in universe: Universe, senderPath: String?, config: Config) -> AppEntry? {
+        guard let host = url.host else { return nil }
+        return config.apps.first { e in
+            e.universeID == universe.id && e.opensOwnLinks == true
+                && URL(fileURLWithPath: expand(e.installedPath)).standardizedFileURL.path != senderPath
+                && matches(host, linkHosts(of: e))
+        }
+    }
+
+    /// Opens links in an app directly. Naming the app skips macOS's universal-link lookup.
+    static func open(_ urls: [URL], inApp entry: AppEntry) {
+        if entry.kind == .launcher {
+            open(urls, in: BrowserTarget(appPath: entry.sourcePath, dataDir: entry.dataDir))
+            return
+        }
+        let config = NSWorkspace.OpenConfiguration()
+        config.activates = true
+        NSWorkspace.shared.open(urls, withApplicationAt: URL(fileURLWithPath: expand(entry.installedPath)),
+                                configuration: config) { _, error in
+            if let error { Log.write("could not open link in \(entry.name): \(error.localizedDescription)") }
+        }
+    }
+
+    // MARK: App link schemes (notion://)
+
+    /// App schemes Multiverse registers for in Info.plist, besides http and https.
+    static let ownSchemes: [String] = {
+        let types = Bundle.main.infoDictionary?["CFBundleURLTypes"] as? [[String: Any]] ?? []
+        return types.flatMap { $0["CFBundleURLSchemes"] as? [String] ?? [] }.map { $0.lowercased() }
+            .filter { $0 != "http" && $0 != "https" }
+    }()
+
+    /// URL schemes an app registers.
+    static func schemes(ofApp path: String) -> Set<String> {
+        let types = Bundle(url: URL(fileURLWithPath: expand(path)))?.infoDictionary?["CFBundleURLTypes"] as? [[String: Any]] ?? []
+        return Set(types.flatMap { $0["CFBundleURLSchemes"] as? [String] ?? [] }.map { $0.lowercased() })
+    }
+
+    /// The universe whose browser is the process `pid` (same app, same --user-data-dir).
+    static func browserUniverse(forPID pid: pid_t, in config: Config) -> Universe? {
+        let p = ProcessInfoLite(pid: pid)
+        guard let path = p.bundlePath else { return nil }
+        let dir = p.userDataDir.map(expand)
+        return config.universes.first {
+            URL(fileURLWithPath: expand($0.browser.appPath)).standardizedFileURL.path == path
+                && $0.browser.dataDir.map(expand) == dir
+        }
+    }
+
+    /// Where a `scheme:` link from `universe` opens: the universe's app for it (a copy or a listed
+    /// original), else the original app.
+    static func schemeTarget(_ scheme: String, in universe: Universe, config: Config) -> AppEntry? {
+        if let e = config.apps.first(where: { $0.universeID == universe.id && schemes(ofApp: $0.sourcePath).contains(scheme) }) {
+            return e
+        }
+        if let e = config.apps.first(where: { schemes(ofApp: $0.sourcePath).contains(scheme) }) {
+            return AppEntry(name: appName(e.sourcePath), kind: .original, sourcePath: e.sourcePath, universeID: universe.id)
+        }
+        return originalHandler(for: scheme).map {
+            AppEntry(name: appName($0.path), kind: .original, sourcePath: $0.path, universeID: universe.id)
+        }
+    }
+
+    /// An installed app other than Multiverse that registers `scheme`.
+    static func originalHandler(for scheme: String) -> URL? {
+        guard let url = URL(string: "\(scheme)://") else { return nil }
+        let me = Bundle.main.bundleURL.standardizedFileURL
+        return NSWorkspace.shared.urlsForApplications(toOpen: url).map(\.standardizedFileURL).first { $0 != me }
     }
 
     static func sendGetURL(_ url: URL, to pid: pid_t) {

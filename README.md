@@ -103,6 +103,19 @@ If a universe's browser is a Chromium profile (`--user-data-dir`), Multiverse ha
 straight to that running profile with an Apple Event. Passing it on the command line doesn't work
 when the browser is already open. macOS may ask once whether Multiverse may control that browser.
 
+**Apps that grab their own links** need one setting changed. macOS sends links like notion.so
+straight to the original Notion, and the default browser never sees them. Turn that off in the
+original app (Notion: Settings → **Open links in desktop app**). Notion then passes the link on to
+Multiverse, which works out which app you clicked it in and opens the link in that universe's
+browser. Until Multiverse sees this working, Settings shows a note on that app's row. To open these
+links in the app instead (say, notion links from personal apps in your Personal Notion), switch on
+**Open Notion links here** in that app's row.
+
+**"Open in app" buttons** follow the universe too. When a Notion page in your personal browser
+offers to open in the app, it opens your Personal Notion; in your work browser, the original. For
+this Multiverse handles `notion://` links while a copy of Notion is in a universe, and gives them
+back to Notion when you remove it.
+
 Every routed link is logged, with the sending app and the link's host but never the full URL, to
 `~/Library/Logs/Multiverse.log`. The log trims itself past about 1 MB. Only http and https links are
 routed; anything else is ignored. The last few routed links appear under **Recent links** in the

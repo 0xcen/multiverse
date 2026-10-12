@@ -291,6 +291,18 @@ struct AppRow: View {
     private var sourceName: String { appName(entry.sourcePath) }
     private var update: String? { Builder.updateAvailable(entry) }
     private var busy: Bool { store.busy.contains(entry.id) }
+    /// The original claims some links as its own (universal links), like Notion does notion.so.
+    private var ownsLinks: Bool { !Router.linkHosts(of: entry).isEmpty }
+    private var opensOwnLinks: Binding<Bool> {
+        Binding(get: { entry.opensOwnLinks == true }, set: { on in
+            if let i = store.config.apps.firstIndex(where: { $0.id == entry.id }) { store.config.apps[i].opensOwnLinks = on }
+        })
+    }
+    /// Multiverse has seen the original hand one of its links back, so its setting is off.
+    private var linksConfirmed: Bool {
+        Bundle(url: URL(fileURLWithPath: expand(entry.sourcePath)))?.bundleIdentifier
+            .map(store.linkOwnersConfirmed.contains) ?? false
+    }
 
     var body: some View {
         HStack(spacing: 12) {
@@ -299,6 +311,18 @@ struct AppRow: View {
             VStack(alignment: .leading, spacing: 2) {
                 Text(entry.name).fontWeight(.medium)
                 Text(subtitle).font(.caption).foregroundStyle(Brand.muted)
+                if ownsLinks && exists && !nameTaken {
+                    Toggle(isOn: opensOwnLinks) {
+                        Text("Open \(sourceName) links here instead of the browser").font(.caption)
+                    }
+                    .toggleStyle(.switch).controlSize(.mini)
+                    .padding(.top, 2)
+                }
+                if exists && !nameTaken && Router.ownSchemes.contains(where: Router.schemes(ofApp: entry.sourcePath).contains),
+                   let u = store.config.universe(entry.universeID) {
+                    Text("**Open in app** on \(sourceName) pages in \(appName(u.browser.appPath))\(u.browser.dataDir == nil ? "" : " (\(u.name))") opens \(entry.name).")
+                        .font(.caption).foregroundStyle(Brand.muted)
+                }
                 if nameTaken {
                     Text("There's already an app called \(entry.name), so this copy can't use that name. Remove it and add it again with another name.")
                         .font(.caption).foregroundStyle(.red)
@@ -307,6 +331,8 @@ struct AppRow: View {
                 } else if let update {
                     Text("\(sourceName) was updated to \(update). Update this copy to match.")
                         .font(.caption).foregroundStyle(.orange)
+                } else if ownsLinks && !linksConfirmed {
+                    LinkSettingCallout(source: sourceName, sourcePath: entry.sourcePath)
                 }
             }
             Spacer()
@@ -834,6 +860,10 @@ struct CopyReadyView: View {
             KeychainPromptPreview(app: entry.name, item: "\(source) Safe Storage", icon: appIcon(entry.installedPath, size: 28))
             Text("If you click Deny, \(entry.name) can't keep you signed in. You'll see this again after updating the copy.")
                 .font(.caption).foregroundStyle(Brand.muted)
+            if !Router.linkHosts(of: entry).isEmpty {
+                Text("**One more thing for links:** \(source) opens its own links itself, before Multiverse sees them. In \(source)'s settings, turn off **Open links in desktop app**. Then \(source) links go to the browser of the universe you clicked them in, or to \(entry.name) if you switch that on in its row.")
+                    .fixedSize(horizontal: false, vertical: true)
+            }
             Spacer()
             HStack {
                 Spacer()
@@ -1043,4 +1073,25 @@ struct ChoiceCard: View {
 
 extension URL: @retroactive Identifiable {
     public var id: String { absoluteString }
+}
+
+/// For apps like Notion that macOS hands their own links to before the default browser: how to
+/// turn that off so Multiverse can route those links. Hidden once Multiverse sees it working.
+struct LinkSettingCallout: View {
+    let source: String
+    let sourcePath: String
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text("\(source) opens its own links itself, before Multiverse sees them. Turn off **Open links in desktop app** in \(source)'s settings so Multiverse can send them to the right universe.")
+                .font(.caption).foregroundStyle(.orange)
+                .fixedSize(horizontal: false, vertical: true)
+            Button("Open \(source)") {
+                NSWorkspace.shared.openApplication(at: URL(fileURLWithPath: expand(sourcePath)),
+                                                   configuration: NSWorkspace.OpenConfiguration())
+            }
+            .buttonStyle(.brandQuiet).controlSize(.small)
+        }
+        .padding(.top, 2)
+    }
 }
