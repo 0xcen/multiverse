@@ -1136,9 +1136,10 @@ struct ChangeIconSheet: View {
             }
         }
         .padding(Space.sheet)
-        .frame(width: 520, height: 360)
+        .frame(width: 560, height: 480)
         .background(Brand.background)
         .tint(Brand.ink)
+        .onAppear { store.errors[entry.id] = nil }  // an earlier failed update isn't about this
     }
 
     private func apply() {

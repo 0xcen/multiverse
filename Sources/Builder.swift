@@ -426,8 +426,13 @@ enum Icons {
         case .original: return icon
         case .invert: return invert(icon, size: size)
         case .tint: return self.tint(icon, with: tint ?? .systemBlue, size: size)
-        case .ivory: return carbonTile(glyph(of: icon, bright: brightLineApps.contains(Bundle(url: app)?.bundleIdentifier ?? ""), size: size), ivory: true, size: size)
-        case .graphite: return carbonTile(glyph(of: icon, bright: brightLineApps.contains(Bundle(url: app)?.bundleIdentifier ?? ""), size: size), ivory: false, size: size)
+        case .ivory, .graphite:
+            let ivory = style == .ivory
+            // Flat icons (a symbol on a plain tile) get the symbol on a Carbon tile. Shaded or
+            // illustrated icons have no clean symbol to cut out, so they're recoloured instead.
+            guard let mark = glyph(of: icon, bright: brightLineApps.contains(Bundle(url: app)?.bundleIdentifier ?? ""), size: size)
+            else { return duotone(icon, ivory: ivory, size: size) }
+            return carbonTile(mark, ivory: ivory, size: size)
         }
     }
 
@@ -436,8 +441,9 @@ enum Icons {
 
     /// The app's symbol (Notion's N, Slack's hash…) as a white mask: the icon's background colour is
     /// sampled just inside its edge, and whatever differs from it is the symbol.
-    static func glyph(of icon: NSImage, bright: Bool = false, size: Int = 1024) -> NSImage {
-        guard let rep = bitmap(icon, size: size), let data = rep.bitmapData else { return icon }
+    /// Nil when the icon has no flat background to tell the symbol apart from.
+    static func glyph(of icon: NSImage, bright: Bool = false, size: Int = 1024) -> NSImage? {
+        guard let rep = bitmap(icon, size: size), let data = rep.bitmapData else { return nil }
         let w = rep.pixelsWide, h = rep.pixelsHigh
         func px(_ x: Int, _ y: Int) -> (Float, Float, Float, Float) {
             guard x >= 0, y >= 0, x < w, y < h else { return (0, 0, 0, 0) }
@@ -447,7 +453,7 @@ enum Icons {
         }
         var minX = w, minY = h, maxX = 0, maxY = 0
         for y in 0..<h { for x in 0..<w where px(x, y).3 > 0.9 { minX = min(minX, x); maxX = max(maxX, x); minY = min(minY, y); maxY = max(maxY, y) } }
-        guard maxX > minX else { return icon }
+        guard maxX > minX else { return nil }
         let inset = Int(Double(maxX - minX) * 0.07)
         var rs: [Float] = [], gs: [Float] = [], bs: [Float] = []
         for t in stride(from: 0.2, through: 0.8, by: 0.02) {
@@ -459,6 +465,12 @@ enum Icons {
         }
         func median(_ v: [Float]) -> Float { v.isEmpty ? 1 : v.sorted()[v.count / 2] }
         let bg = (median(rs), median(gs), median(bs))
+        // A shaded or gradient background varies along the edge; the cut-out would be noise.
+        let spread = zip(zip(rs, gs), bs).map { c in
+            sqrt((c.0.0 - bg.0) * (c.0.0 - bg.0) + (c.0.1 - bg.1) * (c.0.1 - bg.1) + (c.1 - bg.2) * (c.1 - bg.2))
+        }
+        if !bright, median(spread.sorted().suffix(spread.count / 2).map { $0 }) > 0.12 { return nil }
+        var marked = 0
         let out = NSBitmapImageRep(bitmapDataPlanes: nil, pixelsWide: w, pixelsHigh: h, bitsPerSample: 8, samplesPerPixel: 4,
                                    hasAlpha: true, isPlanar: false, colorSpaceName: .deviceRGB, bytesPerRow: w * 4, bitsPerPixel: 32)!
         let o = out.bitmapData!
@@ -473,13 +485,46 @@ enum Icons {
                     && px(x - edge, y + edge).3 > 0.9 && px(x + edge, y - edge).3 > 0.9
                 let strength = bright ? (lum - 0.72) / 0.12 : (d - 0.16) / 0.09
                 let v = UInt8(inside ? min(1, max(0, strength)) * c.3 * 255 : 0)
+                if v > 128 { marked += 1 }
                 let q = o + (y * w + x) * 4
                 q[0] = v; q[1] = v; q[2] = v; q[3] = v
             }
         }
+        // A symbol covers part of the tile; nearly none or most of it means the cut-out failed.
+        let area = max(1, (maxX - minX) * (maxY - minY))
+        if !bright, Double(marked) / Double(area) > 0.5 || Double(marked) / Double(area) < 0.005 { return nil }
         let image = NSImage(size: NSSize(width: size, height: size))
         image.addRepresentation(out)
         return image
+    }
+
+    /// The icon in two Carbon colours by brightness: ivory style keeps light areas ivory and dark
+    /// areas graphite; graphite style swaps them. Keeps the icon's shape and shading.
+    static func duotone(_ image: NSImage, ivory: Bool, size: Int = 1024) -> NSImage {
+        guard let rep = bitmap(image, size: size), let data = rep.bitmapData else { return image }
+        func rgb(_ hex: Int) -> [Float] { [Float((hex >> 16) & 0xFF) / 255, Float((hex >> 8) & 0xFF) / 255, Float(hex & 0xFF) / 255] }
+        let bright = rgb(ivory ? Brand.ivoryHex : Brand.graphiteHex)  // the icon's light areas
+        let dim = rgb(ivory ? 0x161716 : Brand.ivoryHex)              // its dark details
+        let n = rep.pixelsWide * rep.pixelsHigh
+        func lum(_ i: Int) -> Float {
+            let p = data + i * 4, a = Float(p[3])
+            return a > 0 ? (0.299 * Float(p[0]) + 0.587 * Float(p[1]) + 0.114 * Float(p[2])) / a : 0
+        }
+        // Stretch the icon's own brightness range to the full two colours, so it doesn't go muddy.
+        let levels = (0..<n).filter { data[$0 * 4 + 3] > 200 }.map(lum).sorted()
+        let lo = levels.isEmpty ? 0 : levels[levels.count / 20], hi = levels.isEmpty ? 1 : levels[levels.count * 19 / 20]
+        for i in 0..<n {
+            let p = data + i * 4, a = Float(p[3])
+            guard a > 0 else { continue }
+            let t = hi > lo ? (lum(i) - lo) / (hi - lo) : lum(i)
+            for ch in 0..<3 {
+                let v = dim[ch] + (bright[ch] - dim[ch]) * min(1, max(0, t))
+                p[ch] = UInt8(max(0, min(a, v * a)))
+            }
+        }
+        let out = NSImage(size: NSSize(width: size, height: size))
+        out.addRepresentation(rep)
+        return out
     }
 
     /// A macOS-shaped Carbon tile with the symbol on it: ivory tile and graphite symbol, or the reverse.
