@@ -207,7 +207,13 @@ enum Builder {
         let plistURL = dest.appendingPathComponent("Contents/Info.plist")
         var plist = try PropertyListSerialization.propertyList(
             from: Data(contentsOf: plistURL), format: nil) as? [String: Any] ?? [:]
-        // CFBundleName stays: Electron uses it to find its helper apps.
+        // The menu bar shows CFBundleName. Electron finds its helpers as "<CFBundleName> Helper*.app",
+        // so those are renamed along with it; browsers keep theirs, like their bundle id.
+        var helpers: [URL] = []
+        if !isBrowser(src), let oldName = plist["CFBundleName"] as? String, oldName != entry.name {
+            helpers = try renameElectronHelpers(in: dest, from: oldName, to: entry.name)
+            plist["CFBundleName"] = entry.name
+        }
         plist["CFBundleDisplayName"] = entry.name
         plist["CFBundleIdentifier"] = entry.bundleID
         plist[ownerKey] = entry.id.uuidString
@@ -242,7 +248,7 @@ enum Builder {
                             to: dest.appendingPathComponent("Contents/Resources/\(name)"))
         }
         try PropertyListSerialization.data(fromPropertyList: plist, format: .xml, options: 0).write(to: plistURL)
-        try renameLocalizations(in: dest, to: entry.name)
+        try renameLocalizations(in: dest, to: entry.name, renameBundle: !isBrowser(src))
 
         // Re-sign ad hoc (editing Info.plist breaks the original signature), keeping entitlements and
         // the hardened runtime, so things like DYLD_INSERT_LIBRARIES injection stay blocked. Library
@@ -265,12 +271,57 @@ enum Builder {
         // Extended attributes (Finder info, resource forks) in some apps, e.g. Arc, make codesign refuse.
         try run("/usr/bin/xattr", ["-cr", dest.path])
         for binary in nested { try run("/usr/bin/codesign", signArgs + [binary.path]) }
+        for helper in helpers { try signHelper(helper) }
         try run("/usr/bin/codesign", signArgs + [dest.path])
     }
 
     /// Localized InfoPlist.strings override CFBundleDisplayName, so the clone would still show the
     /// original's name in Finder and the Dock. Point them at the new name too.
-    private static func renameLocalizations(in bundle: URL, to name: String) throws {
+    /// Renames Electron's helper apps ("Old Helper (Renderer).app" → "New Helper (Renderer).app") and
+    /// their executables. Returns the renamed helpers, which need signing again.
+    private static func renameElectronHelpers(in bundle: URL, from old: String, to new: String) throws -> [URL] {
+        let fm = FileManager.default
+        let frameworks = bundle.appendingPathComponent("Contents/Frameworks")
+        let prefix = "\(old) Helper"
+        let found = ((try? fm.contentsOfDirectory(atPath: frameworks.path)) ?? [])
+            .filter { $0.hasPrefix(prefix) && $0.hasSuffix(".app") }
+        var renamed: [URL] = []
+        for item in found {
+            let helperOld = String(item.dropLast(4))                       // "Old Helper (GPU)"
+            let helperNew = new + helperOld.dropFirst(old.count)           // "New Helper (GPU)"
+            let app = frameworks.appendingPathComponent("\(helperNew).app")
+            try fm.moveItem(at: frameworks.appendingPathComponent(item), to: app)
+            let macos = app.appendingPathComponent("Contents/MacOS")
+            if fm.fileExists(atPath: macos.appendingPathComponent(helperOld).path) {
+                try fm.moveItem(at: macos.appendingPathComponent(helperOld), to: macos.appendingPathComponent(helperNew))
+            }
+            let plistURL = app.appendingPathComponent("Contents/Info.plist")
+            var plist = try PropertyListSerialization.propertyList(from: Data(contentsOf: plistURL), format: nil) as? [String: Any] ?? [:]
+            if plist["CFBundleExecutable"] as? String == helperOld { plist["CFBundleExecutable"] = helperNew }
+            plist["CFBundleDisplayName"] = helperNew
+            try PropertyListSerialization.data(fromPropertyList: plist, format: .xml, options: 0).write(to: plistURL)
+            renamed.append(app)
+        }
+        return renamed
+    }
+
+    /// Signs a helper app ad hoc, keeping its own entitlements (JIT for renderers and so on).
+    private static func signHelper(_ app: URL) throws {
+        let fm = FileManager.default
+        let ents = fm.temporaryDirectory.appendingPathComponent("mv-ents-\(UUID().uuidString).plist")
+        defer { try? fm.removeItem(at: ents) }
+        var dict: [String: Any] = [:]
+        if let xml = try? run("/usr/bin/codesign", ["-d", "--entitlements", ":-", app.path]),
+           let data = xml.data(using: .utf8),
+           let original = try? PropertyListSerialization.propertyList(from: data, format: nil) as? [String: Any] {
+            dict = original.filter { key, _ in !restrictedEntitlementPrefixes.contains { key.hasPrefix($0) } }
+        }
+        dict["com.apple.security.cs.disable-library-validation"] = true
+        try PropertyListSerialization.data(fromPropertyList: dict, format: .xml, options: 0).write(to: ents)
+        try run("/usr/bin/codesign", ["--force", "-s", "-", "--options", "runtime", "--entitlements", ents.path, app.path])
+    }
+
+    private static func renameLocalizations(in bundle: URL, to name: String, renameBundle: Bool) throws {
         let res = bundle.appendingPathComponent("Contents/Resources")
         let lprojs = (try? FileManager.default.contentsOfDirectory(at: res, includingPropertiesForKeys: nil)) ?? []
         for lproj in lprojs where lproj.pathExtension == "lproj" {
@@ -279,7 +330,7 @@ enum Builder {
                   var dict = try? PropertyListSerialization.propertyList(from: data, format: nil) as? [String: Any],
                   dict["CFBundleDisplayName"] != nil || dict["CFBundleName"] != nil else { continue }
             dict["CFBundleDisplayName"] = name
-            dict.removeValue(forKey: "CFBundleName")  // keep the internal name (Electron helper lookup)
+            if renameBundle { dict["CFBundleName"] = name } else { dict.removeValue(forKey: "CFBundleName") }
             try PropertyListSerialization.data(fromPropertyList: dict, format: .binary, options: 0).write(to: strings)
         }
     }

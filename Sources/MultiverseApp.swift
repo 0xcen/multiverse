@@ -43,7 +43,7 @@ final class Store: ObservableObject {
             }
         }
         NotificationCenter.default.addObserver(forName: NSApplication.didBecomeActiveNotification, object: nil, queue: .main) { _ in
-            Task { @MainActor in Store.shared.refreshRouting() }
+            Task { @MainActor in Store.shared.refreshRouting(); Store.shared.refreshBundles() }
         }
         // Pick up edits made outside the app (by hand, by an agent, or by `Multiverse build`).
         // Watches the folder (saves replace the file) instead of polling.
@@ -57,7 +57,12 @@ final class Store: ObservableObject {
         }
     }
 
+    /// Rows read app versions straight from disk; ask them to look again (e.g. after a copy was
+    /// rebuilt from the command line).
+    func refreshBundles() { objectWillChange.send() }
+
     func reloadIfChanged() {
+        refreshBundles()
         let date = Config.modificationDate
         guard date != configDate else { return }
         configDate = date
@@ -159,6 +164,7 @@ final class Store: ObservableObject {
             let result = Result { try Builder.build(entry, tint: tint) }
             await MainActor.run {
                 self.busy.remove(entry.id)
+                self.refreshBundles()
                 switch result {
                 case .success(let built):
                     if let i = self.config.apps.firstIndex(where: { $0.id == built.id }) {

@@ -277,6 +277,7 @@ struct AppRow: View {
     @EnvironmentObject var store: Store
     let entry: AppEntry
     @State private var confirmRemove = false
+    @State private var changingIcon = false
 
     /// The copy Multiverse made is in place (not just any app with the same name).
     private var exists: Bool {
@@ -356,6 +357,7 @@ struct AppRow: View {
                     NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: entry.installedPath)])
                 }
                 if entry.kind != .original && exists {
+                    Button("Change icon…") { changingIcon = true }
                     Button("Recreate copy") { store.build(entry) }
                 }
                 Divider()
@@ -366,6 +368,7 @@ struct AppRow: View {
         }
         .padding(.horizontal, Space.rowH)
         .padding(.vertical, Space.rowV)
+        .sheet(isPresented: $changingIcon) { ChangeIconSheet(entry: entry) }
         .confirmationDialog("Remove \(entry.name)?", isPresented: $confirmRemove) {
             Button("Remove from Multiverse") { store.remove(entry, trashCopy: false) }
             if entry.kind != .original && exists {
@@ -1093,5 +1096,60 @@ struct LinkSettingCallout: View {
             .buttonStyle(.brandQuiet).controlSize(.small)
         }
         .padding(.top, 2)
+    }
+}
+
+/// Picks a new icon for an existing copy and rebuilds it (logins and data stay).
+struct ChangeIconSheet: View {
+    @EnvironmentObject var store: Store
+    @Environment(\.dismiss) private var dismiss
+    let entry: AppEntry
+    @State private var icon: IconStyle
+    @State private var applying = false
+
+    init(entry: AppEntry) {
+        self.entry = entry
+        _icon = State(initialValue: entry.icon)
+    }
+
+    private var running: Bool { FileManager.default.isRunning(URL(fileURLWithPath: entry.installedPath)) }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: Space.group) {
+            Text("Icon for \(entry.name)").font(Brand.heading(24)).tracking(-0.6)
+            IconChooser(app: URL(fileURLWithPath: expand(entry.sourcePath)), universeID: entry.universeID, selection: $icon)
+            Text("Changing the icon rebuilds the copy. Logins and data are kept; macOS may ask about the keychain again.")
+                .font(.caption).foregroundStyle(Brand.muted)
+                .fixedSize(horizontal: false, vertical: true)
+            if let err = store.errors[entry.id] {
+                Text(err).font(.caption).foregroundStyle(.red)
+            } else if running {
+                Text("Quit \(entry.name) first.").font(.caption).foregroundStyle(.orange)
+            }
+            Spacer()
+            HStack {
+                Spacer()
+                Button("Cancel") { dismiss() }.buttonStyle(.brandQuiet).keyboardShortcut(.cancelAction)
+                Button(applying ? "Applying…" : "Apply") { apply() }
+                    .buttonStyle(.brand)
+                    .disabled(applying || icon == entry.icon)
+            }
+        }
+        .padding(Space.sheet)
+        .frame(width: 520, height: 360)
+        .background(Brand.background)
+        .tint(Brand.ink)
+    }
+
+    private func apply() {
+        guard let i = store.config.apps.firstIndex(where: { $0.id == entry.id }) else { return }
+        store.config.apps[i].icon = icon
+        applying = true
+        store.build(store.config.apps[i]) { ok in
+            applying = false
+            if ok { dismiss(); return }
+            // Keep the config in line with the copy on disk.
+            if let j = store.config.apps.firstIndex(where: { $0.id == entry.id }) { store.config.apps[j].icon = entry.icon }
+        }
     }
 }
