@@ -158,15 +158,22 @@ enum Router {
         return Set(types.flatMap { $0["CFBundleURLSchemes"] as? [String] ?? [] }.map { $0.lowercased() })
     }
 
+    private static func isMultiverseCopy(_ path: String) -> Bool {
+        Bundle(url: URL(fileURLWithPath: path))?.infoDictionary?[Builder.ownerKey] != nil
+    }
+
     /// The universe whose browser is the process `pid` (same app, same --user-data-dir).
     static func browserUniverse(forPID pid: pid_t, in config: Config) -> Universe? {
         let p = ProcessInfoLite(pid: pid)
         guard let path = p.bundlePath else { return nil }
         let dir = p.userDataDir.map(expand)
-        return config.universes.first {
+        let samePath = config.universes.filter {
             URL(fileURLWithPath: expand($0.browser.appPath)).standardizedFileURL.path == path
-                && $0.browser.dataDir.map(expand) == dir
         }
+        // Exact profile first; a browser copy passes its own --user-data-dir, so a target without
+        // one matches any profile of that app.
+        return samePath.first { $0.browser.dataDir.map(expand) == dir }
+            ?? samePath.first { $0.browser.dataDir == nil && isMultiverseCopy(path) }
     }
 
     /// Where a `scheme:` link from `universe` opens: the universe's app for it (a copy or a listed
