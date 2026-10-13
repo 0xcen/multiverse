@@ -169,6 +169,8 @@ enum Builder {
             try fm.trashItem(at: dest, resultingItemURL: nil)
         }
         try fm.moveItem(at: staging, to: dest)
+        // The clone keeps the original's dates; a new one tells the Dock and Finder to reload the icon.
+        try? fm.setAttributes([.modificationDate: Date()], ofItemAtPath: dest.path)
 
         try run("/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister",
                 ["-f", dest.path])
@@ -517,9 +519,11 @@ enum Icons {
             let p = data + i * 4, a = Float(p[3])
             guard a > 0 else { continue }
             let t = hi > lo ? (lum(i) - lo) / (hi - lo) : lum(i)
+            // Blend by alpha³ like `invert`, so soft drop shadows stay dark instead of a pale halo.
+            let k = (a / 255) * (a / 255) * (a / 255)
             for ch in 0..<3 {
                 let v = dim[ch] + (bright[ch] - dim[ch]) * min(1, max(0, t))
-                p[ch] = UInt8(max(0, min(a, v * a)))
+                p[ch] = UInt8(max(0, min(a, Float(p[ch]) * (1 - k) + v * a * k)))
             }
         }
         let out = NSImage(size: NSSize(width: size, height: size))
