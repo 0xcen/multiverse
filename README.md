@@ -73,8 +73,7 @@ never touched.
   encrypt saved passwords and cookies, and macOS only trusts the original app with it. Enter your Mac
   password and click **Always Allow**. If you click Deny, the copy can't keep you signed in. The
   prompt comes back after a copy is updated, because updating re-signs it.
-- **Name and icon:** a copy shows its own name in the Dock and the menu bar (browsers keep the
-  original's menu name). Change its icon later from the **⋯** menu on its row; that rebuilds the copy and
+- **Name and icon:** a copy shows its own name in the Dock and the menu bar. Change its icon later from the **⋯** menu on its row; that rebuilds the copy and
   keeps its logins.
 - **Updates:** a copy doesn't follow the original's auto-updates. When the original updates,
   Multiverse shows "Update" next to the copy. Updating rebuilds the app files only. Logins and data

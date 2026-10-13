@@ -208,9 +208,9 @@ enum Builder {
         var plist = try PropertyListSerialization.propertyList(
             from: Data(contentsOf: plistURL), format: nil) as? [String: Any] ?? [:]
         // The menu bar shows CFBundleName. Electron finds its helpers as "<CFBundleName> Helper*.app",
-        // so those are renamed along with it; browsers keep theirs, like their bundle id.
+        // so those are renamed along with it. (Chromium browsers name their helpers at compile time.)
         var helpers: [URL] = []
-        if !isBrowser(src), let oldName = plist["CFBundleName"] as? String, oldName != entry.name {
+        if let oldName = plist["CFBundleName"] as? String, oldName != entry.name {
             helpers = try renameElectronHelpers(in: dest, from: oldName, to: entry.name)
             plist["CFBundleName"] = entry.name
         }
@@ -248,7 +248,7 @@ enum Builder {
                             to: dest.appendingPathComponent("Contents/Resources/\(name)"))
         }
         try PropertyListSerialization.data(fromPropertyList: plist, format: .xml, options: 0).write(to: plistURL)
-        try renameLocalizations(in: dest, to: entry.name, renameBundle: !isBrowser(src))
+        try renameLocalizations(in: dest, to: entry.name, renameBundle: true)
 
         // Re-sign ad hoc (editing Info.plist breaks the original signature), keeping entitlements and
         // the hardened runtime, so things like DYLD_INSERT_LIBRARIES injection stay blocked. Library
