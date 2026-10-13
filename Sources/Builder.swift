@@ -468,10 +468,12 @@ enum Icons {
         func median(_ v: [Float]) -> Float { v.isEmpty ? 1 : v.sorted()[v.count / 2] }
         let bg = (median(rs), median(gs), median(bs))
         // A shaded or gradient background varies along the edge; the cut-out would be noise.
-        let spread = zip(zip(rs, gs), bs).map { c in
-            sqrt((c.0.0 - bg.0) * (c.0.0 - bg.0) + (c.0.1 - bg.1) * (c.0.1 - bg.1) + (c.1 - bg.2) * (c.1 - bg.2))
+        var spread: [Float] = []
+        for i in rs.indices {
+            let dr: Float = rs[i] - bg.0, dg: Float = gs[i] - bg.1, db: Float = bs[i] - bg.2
+            spread.append((dr * dr + dg * dg + db * db).squareRoot())
         }
-        if !bright, median(spread.sorted().suffix(spread.count / 2).map { $0 }) > 0.12 { return nil }
+        if !bright, median(Array(spread.sorted().suffix(spread.count / 2))) > 0.12 { return nil }
         var marked = 0
         let out = NSBitmapImageRep(bitmapDataPlanes: nil, pixelsWide: w, pixelsHigh: h, bitsPerSample: 8, samplesPerPixel: 4,
                                    hasAlpha: true, isPlanar: false, colorSpaceName: .deviceRGB, bytesPerRow: w * 4, bitsPerPixel: 32)!
