@@ -6,7 +6,7 @@ final class Store: ObservableObject {
     static let shared = Store()
 
     @Published var config = Config.load() {
-        didSet { config.save() }
+        didSet { config.save(); claimAppSchemes() }
     }
     @Published var recent: [RouteRecord] = []
     @Published var routingOn = false
@@ -17,14 +17,33 @@ final class Store: ObservableObject {
     @Published var showUniverse: UUID?
     /// A just-created universe whose name field should open focused.
     @Published var renameOnOpen: UUID?
+    /// Bundle ids of apps (like Notion) seen handing their own links back to Multiverse, which means
+    /// the user turned off their "open links in the app" setting and routing them works.
+    @Published var linkOwnersConfirmed: Set<String> =
+        Set(UserDefaults.standard.stringArray(forKey: "linkOwnersConfirmed") ?? []) {
+        didSet { UserDefaults.standard.set(Array(linkOwnersConfirmed), forKey: "linkOwnersConfirmed") }
+    }
 
+    /// Recently activated apps, newest last, to tell which app a bounced link was clicked in.
+    private var activations: [(pid: pid_t, date: Date)] = []
     private var configDate = Config.modificationDate
     private var configWatcher: DispatchSourceFileSystemObject?
 
     init() {
         refreshRouting()
+        NSWorkspace.shared.notificationCenter.addObserver(
+            forName: NSWorkspace.didActivateApplicationNotification, object: nil, queue: .main
+        ) { note in
+            guard let app = note.userInfo?[NSWorkspace.applicationUserInfoKey] as? NSRunningApplication,
+                  app.processIdentifier != getpid() else { return }
+            let pid = app.processIdentifier
+            Task { @MainActor in
+                Store.shared.activations.append((pid, Date()))
+                Store.shared.activations = Array(Store.shared.activations.suffix(8))
+            }
+        }
         NotificationCenter.default.addObserver(forName: NSApplication.didBecomeActiveNotification, object: nil, queue: .main) { _ in
-            Task { @MainActor in Store.shared.refreshRouting() }
+            Task { @MainActor in Store.shared.refreshRouting(); Store.shared.refreshBundles() }
         }
         // Pick up edits made outside the app (by hand, by an agent, or by `Multiverse build`).
         // Watches the folder (saves replace the file) instead of polling.
@@ -38,7 +57,12 @@ final class Store: ObservableObject {
         }
     }
 
+    /// Rows read app versions straight from disk; ask them to look again (e.g. after a copy was
+    /// rebuilt from the command line).
+    func refreshBundles() { objectWillChange.send() }
+
     func reloadIfChanged() {
+        refreshBundles()
         let date = Config.modificationDate
         guard date != configDate else { return }
         configDate = date
@@ -51,18 +75,80 @@ final class Store: ObservableObject {
     }
 
     func route(_ urls: [URL], senderPID: pid_t) {
-        let (opener, universe) = Router.universe(forSenderPID: senderPID, in: config)
+        for url in urls { route(url, senderPID: senderPID) }
+        recent = Array(recent.prefix(10))
+    }
+
+    private func route(_ url: URL, senderPID: pid_t) {
+        if let scheme = url.scheme?.lowercased(), scheme != "http", scheme != "https" {
+            return routeAppLink(url, scheme: scheme, senderPID: senderPID)
+        }
+        var pid = senderPID
+        var via = ""
+        // An app that owns this link (e.g. Notion with "open links in desktop app" off) received it
+        // from macOS first and handed it back. Credit it to the app the user actually clicked in.
+        if let bouncer = bouncer(of: url, senderPID: senderPID), let clicked = appBefore(bouncer) {
+            if let id = bouncer.bundleIdentifier, !linkOwnersConfirmed.contains(id) { linkOwnersConfirmed.insert(id) }
+            via = " via \(bouncer.localizedName ?? bouncer.bundleIdentifier ?? "pid:\(bouncer.processIdentifier)")"
+            pid = clicked
+        }
+        let (opener, universe) = Router.universe(forSenderPID: pid, in: config)
         guard let universe else {
-            Log.write("\(opener) -> no universe configured")
+            Log.write("\(opener)\(via) -> no universe configured")
             return
         }
-        for url in urls {
-            Log.write("\(opener) -> \(universe.name) \(url.host ?? url.scheme ?? "")")
-            recent.insert(RouteRecord(opener: opener, universe: "\(universe.emoji) \(universe.name)",
-                                      host: url.host ?? url.absoluteString), at: 0)
+        let owner = Router.owner(of: url, in: universe, senderPath: ProcessInfoLite(pid: pid).bundlePath, config: config)
+        Log.write("\(opener)\(via) -> \(universe.name)\(owner.map { " (\($0.name))" } ?? "") \(url.host ?? url.scheme ?? "")")
+        recent.insert(RouteRecord(opener: opener, universe: "\(universe.emoji) \(universe.name)",
+                                  host: url.host ?? url.absoluteString, app: owner?.name), at: 0)
+        if let owner { Router.open([url], inApp: owner) } else { Router.open([url], in: universe.browser) }
+    }
+
+    /// An app's own link (like notion://, from a web page's "Open in app" button) goes to that app's
+    /// copy in the universe it came from: the universe of the browser or app that sent it.
+    private func routeAppLink(_ url: URL, scheme: String, senderPID: pid_t) {
+        // The sender may be gone already (`open`); then it's the app the user was just in.
+        let me = getpid()
+        let pid = [owningApp(senderPID)?.processIdentifier, NSWorkspace.shared.frontmostApplication?.processIdentifier,
+                   activations.last?.pid].compactMap { $0 }.first { $0 != me } ?? senderPID
+        let (opener, universe) = Router.browserUniverse(forPID: pid, in: config)
+            .map { ("\($0.emoji) \($0.name)'s browser", Optional($0)) }
+            ?? Router.universe(forSenderPID: pid, in: config)
+        guard let universe, let target = Router.schemeTarget(scheme, in: universe, config: config) else {
+            Log.write("\(opener) -> no app for \(scheme): links")
+            return
         }
-        recent = Array(recent.prefix(10))
-        Router.open(urls, in: universe.browser)
+        Log.write("\(opener) -> \(universe.name) (\(target.name)) \(scheme):")
+        recent.insert(RouteRecord(opener: opener, universe: "\(universe.emoji) \(universe.name)",
+                                  host: "\(scheme): link", app: target.name), at: 0)
+        Router.open([url], inApp: target)
+    }
+
+    /// The app behind `senderPID` if it is handing back a link it owns: it isn't in any universe,
+    /// claims the link's host, and the user wasn't already working in it.
+    private func bouncer(of url: URL, senderPID: pid_t) -> NSRunningApplication? {
+        guard let host = url.host else { return nil }
+        func handsBack(_ app: NSRunningApplication) -> Bool {
+            guard let path = app.bundleURL?.path,
+                  Router.entry(for: ProcessInfoLite(pid: app.processIdentifier), in: config) == nil,
+                  Router.matches(host, Router.linkHosts(ofApp: path)) else { return false }
+            // Frontmost for a while before the link came: the user clicked it inside that app.
+            if let last = activations.last, last.pid == app.processIdentifier, Date().timeIntervalSince(last.date) > 2 {
+                return false
+            }
+            return true
+        }
+        if let app = owningApp(senderPID) { return handsBack(app) ? app : nil }
+        // The sender already exited: Notion hands links back through `open -b …`, which is gone by
+        // now. Look for a running app that owns this link instead.
+        return NSWorkspace.shared.runningApplications.first { $0.activationPolicy == .regular && handsBack($0) }
+    }
+
+    /// The frontmost app if it isn't `app`, else the most recently active other app in the last 30 seconds.
+    private func appBefore(_ app: NSRunningApplication) -> pid_t? {
+        if let front = NSWorkspace.shared.frontmostApplication?.processIdentifier,
+           front != app.processIdentifier, front != getpid() { return front }
+        return activations.last { $0.pid != app.processIdentifier && Date().timeIntervalSince($0.date) < 30 }?.pid
     }
 
     func tint(for entry: AppEntry) -> NSColor? {
@@ -78,6 +164,7 @@ final class Store: ObservableObject {
             let result = Result { try Builder.build(entry, tint: tint) }
             await MainActor.run {
                 self.busy.remove(entry.id)
+                self.refreshBundles()
                 switch result {
                 case .success(let built):
                     if let i = self.config.apps.firstIndex(where: { $0.id == built.id }) {
@@ -134,6 +221,25 @@ final class Store: ObservableObject {
         routingOn = NSWorkspace.shared.urlForApplication(toOpen: URL(string: "https://example.com")!)?.standardizedFileURL
             == Bundle.main.bundleURL.standardizedFileURL
         openAtLogin = SMAppService.mainApp.status == .enabled
+        claimAppSchemes()
+    }
+
+    /// Takes over app link schemes (notion://) while an app that uses them is in a universe, so
+    /// "Open in app" buttons reach the right copy, and gives them back to the app otherwise.
+    func claimAppSchemes() {
+        let me = Bundle.main.bundleURL.standardizedFileURL
+        guard me.path.hasPrefix("/Applications/") else { return }  // not from a dev build
+        for scheme in Router.ownSchemes {
+            let sources = config.apps.map { URL(fileURLWithPath: expand($0.sourcePath)).standardizedFileURL }
+                .filter { Router.schemes(ofApp: $0.path).contains(scheme) }
+            let current = NSWorkspace.shared.urlForApplication(toOpen: URL(string: "\(scheme)://")!)?.standardizedFileURL
+            let want = sources.isEmpty ? Router.originalHandler(for: scheme) : me
+            guard let want, current != want else { continue }
+            NSWorkspace.shared.setDefaultApplication(at: want, toOpenURLsWithScheme: scheme) { error in
+                Log.write(error.map { "could not hand \(scheme): links to \(want.lastPathComponent): \($0.localizedDescription)" }
+                          ?? "\(scheme): links now go to \(want.lastPathComponent)")
+            }
+        }
     }
 
     /// Adds or removes Multiverse from the login items (System Settings → General → Login Items).
@@ -175,8 +281,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     @objc func handleGetURL(_ event: NSAppleEventDescriptor, reply: NSAppleEventDescriptor) {
         guard let s = event.paramDescriptor(forKeyword: keyDirectObject)?.stringValue,
-              let url = URL(string: s), ["http", "https"].contains(url.scheme?.lowercased() ?? "") else {
-            Log.write("ignored a link that isn't http(s)")
+              let url = URL(string: s),
+              (["http", "https"] + Router.ownSchemes).contains(url.scheme?.lowercased() ?? "") else {
+            Log.write("ignored a link Multiverse doesn't route")
             return
         }
         let pid = event.attributeDescriptor(forKeyword: keySenderPIDAttr)?.int32Value ?? 0
@@ -241,7 +348,9 @@ struct MenuContent: View {
         Divider()
         if !store.recent.isEmpty {
             Menu("Recent links") {
-                ForEach(store.recent) { r in Text("\(r.host) → \(r.universe)  (from \(r.opener))") }
+                ForEach(store.recent) { r in
+                    Text("\(r.host) → \(r.universe)\(r.app.map { " · \($0)" } ?? "")  (from \(r.opener))")
+                }
             }
         }
         if store.config.apps.contains(where: { Builder.updateAvailable($0) != nil }) {

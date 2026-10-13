@@ -169,6 +169,8 @@ enum Builder {
             try fm.trashItem(at: dest, resultingItemURL: nil)
         }
         try fm.moveItem(at: staging, to: dest)
+        // The clone keeps the original's dates; a new one tells the Dock and Finder to reload the icon.
+        try? fm.setAttributes([.modificationDate: Date()], ofItemAtPath: dest.path)
 
         try run("/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister",
                 ["-f", dest.path])
@@ -207,7 +209,13 @@ enum Builder {
         let plistURL = dest.appendingPathComponent("Contents/Info.plist")
         var plist = try PropertyListSerialization.propertyList(
             from: Data(contentsOf: plistURL), format: nil) as? [String: Any] ?? [:]
-        // CFBundleName stays: Electron uses it to find its helper apps.
+        // The menu bar shows CFBundleName. Electron finds its helpers as "<CFBundleName> Helper*.app",
+        // so those are renamed along with it. (Chromium browsers name their helpers at compile time.)
+        var helpers: [URL] = []
+        if let oldName = plist["CFBundleName"] as? String, oldName != entry.name {
+            helpers = try renameElectronHelpers(in: dest, from: oldName, to: entry.name)
+            plist["CFBundleName"] = entry.name
+        }
         plist["CFBundleDisplayName"] = entry.name
         plist["CFBundleIdentifier"] = entry.bundleID
         plist[ownerKey] = entry.id.uuidString
@@ -242,7 +250,7 @@ enum Builder {
                             to: dest.appendingPathComponent("Contents/Resources/\(name)"))
         }
         try PropertyListSerialization.data(fromPropertyList: plist, format: .xml, options: 0).write(to: plistURL)
-        try renameLocalizations(in: dest, to: entry.name)
+        try renameLocalizations(in: dest, to: entry.name, renameBundle: true)
 
         // Re-sign ad hoc (editing Info.plist breaks the original signature), keeping entitlements and
         // the hardened runtime, so things like DYLD_INSERT_LIBRARIES injection stay blocked. Library
@@ -265,12 +273,57 @@ enum Builder {
         // Extended attributes (Finder info, resource forks) in some apps, e.g. Arc, make codesign refuse.
         try run("/usr/bin/xattr", ["-cr", dest.path])
         for binary in nested { try run("/usr/bin/codesign", signArgs + [binary.path]) }
+        for helper in helpers { try signHelper(helper) }
         try run("/usr/bin/codesign", signArgs + [dest.path])
     }
 
     /// Localized InfoPlist.strings override CFBundleDisplayName, so the clone would still show the
     /// original's name in Finder and the Dock. Point them at the new name too.
-    private static func renameLocalizations(in bundle: URL, to name: String) throws {
+    /// Renames Electron's helper apps ("Old Helper (Renderer).app" → "New Helper (Renderer).app") and
+    /// their executables. Returns the renamed helpers, which need signing again.
+    private static func renameElectronHelpers(in bundle: URL, from old: String, to new: String) throws -> [URL] {
+        let fm = FileManager.default
+        let frameworks = bundle.appendingPathComponent("Contents/Frameworks")
+        let prefix = "\(old) Helper"
+        let found = ((try? fm.contentsOfDirectory(atPath: frameworks.path)) ?? [])
+            .filter { $0.hasPrefix(prefix) && $0.hasSuffix(".app") }
+        var renamed: [URL] = []
+        for item in found {
+            let helperOld = String(item.dropLast(4))                       // "Old Helper (GPU)"
+            let helperNew = new + helperOld.dropFirst(old.count)           // "New Helper (GPU)"
+            let app = frameworks.appendingPathComponent("\(helperNew).app")
+            try fm.moveItem(at: frameworks.appendingPathComponent(item), to: app)
+            let macos = app.appendingPathComponent("Contents/MacOS")
+            if fm.fileExists(atPath: macos.appendingPathComponent(helperOld).path) {
+                try fm.moveItem(at: macos.appendingPathComponent(helperOld), to: macos.appendingPathComponent(helperNew))
+            }
+            let plistURL = app.appendingPathComponent("Contents/Info.plist")
+            var plist = try PropertyListSerialization.propertyList(from: Data(contentsOf: plistURL), format: nil) as? [String: Any] ?? [:]
+            if plist["CFBundleExecutable"] as? String == helperOld { plist["CFBundleExecutable"] = helperNew }
+            plist["CFBundleDisplayName"] = helperNew
+            try PropertyListSerialization.data(fromPropertyList: plist, format: .xml, options: 0).write(to: plistURL)
+            renamed.append(app)
+        }
+        return renamed
+    }
+
+    /// Signs a helper app ad hoc, keeping its own entitlements (JIT for renderers and so on).
+    private static func signHelper(_ app: URL) throws {
+        let fm = FileManager.default
+        let ents = fm.temporaryDirectory.appendingPathComponent("mv-ents-\(UUID().uuidString).plist")
+        defer { try? fm.removeItem(at: ents) }
+        var dict: [String: Any] = [:]
+        if let xml = try? run("/usr/bin/codesign", ["-d", "--entitlements", ":-", app.path]),
+           let data = xml.data(using: .utf8),
+           let original = try? PropertyListSerialization.propertyList(from: data, format: nil) as? [String: Any] {
+            dict = original.filter { key, _ in !restrictedEntitlementPrefixes.contains { key.hasPrefix($0) } }
+        }
+        dict["com.apple.security.cs.disable-library-validation"] = true
+        try PropertyListSerialization.data(fromPropertyList: dict, format: .xml, options: 0).write(to: ents)
+        try run("/usr/bin/codesign", ["--force", "-s", "-", "--options", "runtime", "--entitlements", ents.path, app.path])
+    }
+
+    private static func renameLocalizations(in bundle: URL, to name: String, renameBundle: Bool) throws {
         let res = bundle.appendingPathComponent("Contents/Resources")
         let lprojs = (try? FileManager.default.contentsOfDirectory(at: res, includingPropertiesForKeys: nil)) ?? []
         for lproj in lprojs where lproj.pathExtension == "lproj" {
@@ -279,7 +332,7 @@ enum Builder {
                   var dict = try? PropertyListSerialization.propertyList(from: data, format: nil) as? [String: Any],
                   dict["CFBundleDisplayName"] != nil || dict["CFBundleName"] != nil else { continue }
             dict["CFBundleDisplayName"] = name
-            dict.removeValue(forKey: "CFBundleName")  // keep the internal name (Electron helper lookup)
+            if renameBundle { dict["CFBundleName"] = name } else { dict.removeValue(forKey: "CFBundleName") }
             try PropertyListSerialization.data(fromPropertyList: dict, format: .binary, options: 0).write(to: strings)
         }
     }
@@ -375,8 +428,13 @@ enum Icons {
         case .original: return icon
         case .invert: return invert(icon, size: size)
         case .tint: return self.tint(icon, with: tint ?? .systemBlue, size: size)
-        case .ivory: return carbonTile(glyph(of: icon, bright: brightLineApps.contains(Bundle(url: app)?.bundleIdentifier ?? ""), size: size), ivory: true, size: size)
-        case .graphite: return carbonTile(glyph(of: icon, bright: brightLineApps.contains(Bundle(url: app)?.bundleIdentifier ?? ""), size: size), ivory: false, size: size)
+        case .ivory, .graphite:
+            let ivory = style == .ivory
+            // Flat icons (a symbol on a plain tile) get the symbol on a Carbon tile. Shaded or
+            // illustrated icons have no clean symbol to cut out, so they're recoloured instead.
+            guard let mark = glyph(of: icon, bright: brightLineApps.contains(Bundle(url: app)?.bundleIdentifier ?? ""), size: size)
+            else { return duotone(icon, ivory: ivory, size: size) }
+            return carbonTile(mark, ivory: ivory, size: size)
         }
     }
 
@@ -385,8 +443,9 @@ enum Icons {
 
     /// The app's symbol (Notion's N, Slack's hash…) as a white mask: the icon's background colour is
     /// sampled just inside its edge, and whatever differs from it is the symbol.
-    static func glyph(of icon: NSImage, bright: Bool = false, size: Int = 1024) -> NSImage {
-        guard let rep = bitmap(icon, size: size), let data = rep.bitmapData else { return icon }
+    /// Nil when the icon has no flat background to tell the symbol apart from.
+    static func glyph(of icon: NSImage, bright: Bool = false, size: Int = 1024) -> NSImage? {
+        guard let rep = bitmap(icon, size: size), let data = rep.bitmapData else { return nil }
         let w = rep.pixelsWide, h = rep.pixelsHigh
         func px(_ x: Int, _ y: Int) -> (Float, Float, Float, Float) {
             guard x >= 0, y >= 0, x < w, y < h else { return (0, 0, 0, 0) }
@@ -396,7 +455,7 @@ enum Icons {
         }
         var minX = w, minY = h, maxX = 0, maxY = 0
         for y in 0..<h { for x in 0..<w where px(x, y).3 > 0.9 { minX = min(minX, x); maxX = max(maxX, x); minY = min(minY, y); maxY = max(maxY, y) } }
-        guard maxX > minX else { return icon }
+        guard maxX > minX else { return nil }
         let inset = Int(Double(maxX - minX) * 0.07)
         var rs: [Float] = [], gs: [Float] = [], bs: [Float] = []
         for t in stride(from: 0.2, through: 0.8, by: 0.02) {
@@ -408,6 +467,14 @@ enum Icons {
         }
         func median(_ v: [Float]) -> Float { v.isEmpty ? 1 : v.sorted()[v.count / 2] }
         let bg = (median(rs), median(gs), median(bs))
+        // A shaded or gradient background varies along the edge; the cut-out would be noise.
+        var spread: [Float] = []
+        for i in rs.indices {
+            let dr: Float = rs[i] - bg.0, dg: Float = gs[i] - bg.1, db: Float = bs[i] - bg.2
+            spread.append((dr * dr + dg * dg + db * db).squareRoot())
+        }
+        if !bright, median(Array(spread.sorted().suffix(spread.count / 2))) > 0.12 { return nil }
+        var marked = 0
         let out = NSBitmapImageRep(bitmapDataPlanes: nil, pixelsWide: w, pixelsHigh: h, bitsPerSample: 8, samplesPerPixel: 4,
                                    hasAlpha: true, isPlanar: false, colorSpaceName: .deviceRGB, bytesPerRow: w * 4, bitsPerPixel: 32)!
         let o = out.bitmapData!
@@ -422,13 +489,48 @@ enum Icons {
                     && px(x - edge, y + edge).3 > 0.9 && px(x + edge, y - edge).3 > 0.9
                 let strength = bright ? (lum - 0.72) / 0.12 : (d - 0.16) / 0.09
                 let v = UInt8(inside ? min(1, max(0, strength)) * c.3 * 255 : 0)
+                if v > 128 { marked += 1 }
                 let q = o + (y * w + x) * 4
                 q[0] = v; q[1] = v; q[2] = v; q[3] = v
             }
         }
+        // A symbol covers part of the tile; nearly none or most of it means the cut-out failed.
+        let area = max(1, (maxX - minX) * (maxY - minY))
+        if !bright, Double(marked) / Double(area) > 0.5 || Double(marked) / Double(area) < 0.005 { return nil }
         let image = NSImage(size: NSSize(width: size, height: size))
         image.addRepresentation(out)
         return image
+    }
+
+    /// The icon in two Carbon colours by brightness: ivory style keeps light areas ivory and dark
+    /// areas graphite; graphite style swaps them. Keeps the icon's shape and shading.
+    static func duotone(_ image: NSImage, ivory: Bool, size: Int = 1024) -> NSImage {
+        guard let rep = bitmap(image, size: size), let data = rep.bitmapData else { return image }
+        func rgb(_ hex: Int) -> [Float] { [Float((hex >> 16) & 0xFF) / 255, Float((hex >> 8) & 0xFF) / 255, Float(hex & 0xFF) / 255] }
+        let bright = rgb(ivory ? Brand.ivoryHex : Brand.graphiteHex)  // the icon's light areas
+        let dim = rgb(ivory ? 0x161716 : Brand.ivoryHex)              // its dark details
+        let n = rep.pixelsWide * rep.pixelsHigh
+        func lum(_ i: Int) -> Float {
+            let p = data + i * 4, a = Float(p[3])
+            return a > 0 ? (0.299 * Float(p[0]) + 0.587 * Float(p[1]) + 0.114 * Float(p[2])) / a : 0
+        }
+        // Stretch the icon's own brightness range to the full two colours, so it doesn't go muddy.
+        let levels = (0..<n).filter { data[$0 * 4 + 3] > 200 }.map(lum).sorted()
+        let lo = levels.isEmpty ? 0 : levels[levels.count / 20], hi = levels.isEmpty ? 1 : levels[levels.count * 19 / 20]
+        for i in 0..<n {
+            let p = data + i * 4, a = Float(p[3])
+            guard a > 0 else { continue }
+            let t = hi > lo ? (lum(i) - lo) / (hi - lo) : lum(i)
+            // Blend by alpha³ like `invert`, so soft drop shadows stay dark instead of a pale halo.
+            let k = (a / 255) * (a / 255) * (a / 255)
+            for ch in 0..<3 {
+                let v = dim[ch] + (bright[ch] - dim[ch]) * min(1, max(0, t))
+                p[ch] = UInt8(max(0, min(a, Float(p[ch]) * (1 - k) + v * a * k)))
+            }
+        }
+        let out = NSImage(size: NSSize(width: size, height: size))
+        out.addRepresentation(rep)
+        return out
     }
 
     /// A macOS-shaped Carbon tile with the symbol on it: ivory tile and graphite symbol, or the reverse.

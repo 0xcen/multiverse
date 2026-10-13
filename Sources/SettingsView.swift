@@ -277,6 +277,7 @@ struct AppRow: View {
     @EnvironmentObject var store: Store
     let entry: AppEntry
     @State private var confirmRemove = false
+    @State private var changingIcon = false
 
     /// The copy Multiverse made is in place (not just any app with the same name).
     private var exists: Bool {
@@ -291,6 +292,18 @@ struct AppRow: View {
     private var sourceName: String { appName(entry.sourcePath) }
     private var update: String? { Builder.updateAvailable(entry) }
     private var busy: Bool { store.busy.contains(entry.id) }
+    /// The original claims some links as its own (universal links), like Notion does notion.so.
+    private var ownsLinks: Bool { !Router.linkHosts(of: entry).isEmpty }
+    private var opensOwnLinks: Binding<Bool> {
+        Binding(get: { entry.opensOwnLinks == true }, set: { on in
+            if let i = store.config.apps.firstIndex(where: { $0.id == entry.id }) { store.config.apps[i].opensOwnLinks = on }
+        })
+    }
+    /// Multiverse has seen the original hand one of its links back, so its setting is off.
+    private var linksConfirmed: Bool {
+        Bundle(url: URL(fileURLWithPath: expand(entry.sourcePath)))?.bundleIdentifier
+            .map(store.linkOwnersConfirmed.contains) ?? false
+    }
 
     var body: some View {
         HStack(spacing: 12) {
@@ -299,6 +312,18 @@ struct AppRow: View {
             VStack(alignment: .leading, spacing: 2) {
                 Text(entry.name).fontWeight(.medium)
                 Text(subtitle).font(.caption).foregroundStyle(Brand.muted)
+                if ownsLinks && exists && !nameTaken {
+                    Toggle(isOn: opensOwnLinks) {
+                        Text("Open \(sourceName) links here instead of the browser").font(.caption)
+                    }
+                    .toggleStyle(.switch).controlSize(.mini)
+                    .padding(.top, 2)
+                }
+                if exists && !nameTaken && Router.ownSchemes.contains(where: Router.schemes(ofApp: entry.sourcePath).contains),
+                   let u = store.config.universe(entry.universeID) {
+                    Text("**Open in app** on \(sourceName) pages in \(appName(u.browser.appPath))\(u.browser.dataDir == nil ? "" : " (\(u.name))") opens \(entry.name).")
+                        .font(.caption).foregroundStyle(Brand.muted)
+                }
                 if nameTaken {
                     Text("There's already an app called \(entry.name), so this copy can't use that name. Remove it and add it again with another name.")
                         .font(.caption).foregroundStyle(.red)
@@ -307,6 +332,8 @@ struct AppRow: View {
                 } else if let update {
                     Text("\(sourceName) was updated to \(update). Update this copy to match.")
                         .font(.caption).foregroundStyle(.orange)
+                } else if ownsLinks && !linksConfirmed {
+                    LinkSettingCallout(source: sourceName, sourcePath: entry.sourcePath)
                 }
             }
             Spacer()
@@ -330,6 +357,7 @@ struct AppRow: View {
                     NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: entry.installedPath)])
                 }
                 if entry.kind != .original && exists {
+                    Button("Change icon…") { changingIcon = true }
                     Button("Recreate copy") { store.build(entry) }
                 }
                 Divider()
@@ -340,6 +368,7 @@ struct AppRow: View {
         }
         .padding(.horizontal, Space.rowH)
         .padding(.vertical, Space.rowV)
+        .sheet(isPresented: $changingIcon) { ChangeIconSheet(entry: entry) }
         .confirmationDialog("Remove \(entry.name)?", isPresented: $confirmRemove) {
             Button("Remove from Multiverse") { store.remove(entry, trashCopy: false) }
             if entry.kind != .original && exists {
@@ -834,6 +863,10 @@ struct CopyReadyView: View {
             KeychainPromptPreview(app: entry.name, item: "\(source) Safe Storage", icon: appIcon(entry.installedPath, size: 28))
             Text("If you click Deny, \(entry.name) can't keep you signed in. You'll see this again after updating the copy.")
                 .font(.caption).foregroundStyle(Brand.muted)
+            if !Router.linkHosts(of: entry).isEmpty {
+                Text("**One more thing for links:** \(source) opens its own links itself, before Multiverse sees them. In \(source)'s settings, turn off **Open links in desktop app**. Then \(source) links go to the browser of the universe you clicked them in, or to \(entry.name) if you switch that on in its row.")
+                    .fixedSize(horizontal: false, vertical: true)
+            }
             Spacer()
             HStack {
                 Spacer()
@@ -1043,4 +1076,81 @@ struct ChoiceCard: View {
 
 extension URL: @retroactive Identifiable {
     public var id: String { absoluteString }
+}
+
+/// For apps like Notion that macOS hands their own links to before the default browser: how to
+/// turn that off so Multiverse can route those links. Hidden once Multiverse sees it working.
+struct LinkSettingCallout: View {
+    let source: String
+    let sourcePath: String
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text("\(source) opens its own links itself, before Multiverse sees them. Turn off **Open links in desktop app** in \(source)'s settings so Multiverse can send them to the right universe.")
+                .font(.caption).foregroundStyle(.orange)
+                .fixedSize(horizontal: false, vertical: true)
+            Button("Open \(source)") {
+                NSWorkspace.shared.openApplication(at: URL(fileURLWithPath: expand(sourcePath)),
+                                                   configuration: NSWorkspace.OpenConfiguration())
+            }
+            .buttonStyle(.brandQuiet).controlSize(.small)
+        }
+        .padding(.top, 2)
+    }
+}
+
+/// Picks a new icon for an existing copy and rebuilds it (logins and data stay).
+struct ChangeIconSheet: View {
+    @EnvironmentObject var store: Store
+    @Environment(\.dismiss) private var dismiss
+    let entry: AppEntry
+    @State private var icon: IconStyle
+    @State private var applying = false
+
+    init(entry: AppEntry) {
+        self.entry = entry
+        _icon = State(initialValue: entry.icon)
+    }
+
+    private var running: Bool { FileManager.default.isRunning(URL(fileURLWithPath: entry.installedPath)) }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: Space.group) {
+            Text("Icon for \(entry.name)").font(Brand.heading(24)).tracking(-0.6)
+            IconChooser(app: URL(fileURLWithPath: expand(entry.sourcePath)), universeID: entry.universeID, selection: $icon)
+            Text("Changing the icon rebuilds the copy. Logins and data are kept; macOS may ask about the keychain again.")
+                .font(.caption).foregroundStyle(Brand.muted)
+                .fixedSize(horizontal: false, vertical: true)
+            if let err = store.errors[entry.id] {
+                Text(err).font(.caption).foregroundStyle(.red)
+            } else if running {
+                Text("Quit \(entry.name) first.").font(.caption).foregroundStyle(.orange)
+            }
+            Spacer()
+            HStack {
+                Spacer()
+                Button("Cancel") { dismiss() }.buttonStyle(.brandQuiet).keyboardShortcut(.cancelAction)
+                Button(applying ? "Applying…" : "Apply") { apply() }
+                    .buttonStyle(.brand)
+                    .disabled(applying || icon == entry.icon)
+            }
+        }
+        .padding(Space.sheet)
+        .frame(width: 560, height: 480)
+        .background(Brand.background)
+        .tint(Brand.ink)
+        .onAppear { store.errors[entry.id] = nil }  // an earlier failed update isn't about this
+    }
+
+    private func apply() {
+        guard let i = store.config.apps.firstIndex(where: { $0.id == entry.id }) else { return }
+        store.config.apps[i].icon = icon
+        applying = true
+        store.build(store.config.apps[i]) { ok in
+            applying = false
+            if ok { dismiss(); return }
+            // Keep the config in line with the copy on disk.
+            if let j = store.config.apps.firstIndex(where: { $0.id == entry.id }) { store.config.apps[j].icon = entry.icon }
+        }
+    }
 }

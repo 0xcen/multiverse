@@ -73,6 +73,8 @@ never touched.
   encrypt saved passwords and cookies, and macOS only trusts the original app with it. Enter your Mac
   password and click **Always Allow**. If you click Deny, the copy can't keep you signed in. The
   prompt comes back after a copy is updated, because updating re-signs it.
+- **Name and icon:** a copy shows its own name in the Dock and the menu bar. Change its icon later from the **⋯** menu on its row; that rebuilds the copy and
+  keeps its logins.
 - **Updates:** a copy doesn't follow the original's auto-updates. When the original updates,
   Multiverse shows "Update" next to the copy. Updating rebuilds the app files only. Logins and data
   live in `~/Library`, not inside the app, so they are kept.
@@ -102,6 +104,19 @@ in one of your universes. It goes by the app's location, its bundle id, and for 
 If a universe's browser is a Chromium profile (`--user-data-dir`), Multiverse hands the link
 straight to that running profile with an Apple Event. Passing it on the command line doesn't work
 when the browser is already open. macOS may ask once whether Multiverse may control that browser.
+
+**Apps that grab their own links** need one setting changed. macOS sends links like notion.so
+straight to the original Notion, and the default browser never sees them. Turn that off in the
+original app (Notion: Settings → **Open links in desktop app**). Notion then passes the link on to
+Multiverse, which works out which app you clicked it in and opens the link in that universe's
+browser. Until Multiverse sees this working, Settings shows a note on that app's row. To open these
+links in the app instead (say, notion links from personal apps in your Personal Notion), switch on
+**Open Notion links here** in that app's row.
+
+**"Open in app" buttons** follow the universe too. When a Notion page in your personal browser
+offers to open in the app, it opens your Personal Notion; in your work browser, the original. For
+this Multiverse handles `notion://` links while a copy of Notion is in a universe, and gives them
+back to Notion when you remove it.
 
 Every routed link is logged, with the sending app and the link's host but never the full URL, to
 `~/Library/Logs/Multiverse.log`. The log trims itself past about 1 MB. Only http and https links are

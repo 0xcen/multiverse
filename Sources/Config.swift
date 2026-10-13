@@ -47,6 +47,9 @@ struct AppEntry: Codable, Identifiable, Hashable {
     /// clone: written to LSEnvironment (e.g. an app-specific data-dir variable).
     var env: [String: String] = [:]
     var icon: IconStyle = .original
+    /// Links this app owns (e.g. notion.so for Notion) that come from its universe open in it
+    /// instead of the universe's browser.
+    var opensOwnLinks: Bool?
 
     /// Names become file names in /Applications, so keep them to one plain path component.
     static func nameProblem(_ name: String) -> String? {
