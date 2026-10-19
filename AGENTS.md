@@ -143,8 +143,9 @@ log shows which app Multiverse thought sent it.
 
 ## Later
 
-- After an original app updates, `MV status` says so. Run `MV build "<copy name>"` while the copy is
-  closed, or `MV build --all`. App data and logins are kept.
+- After an original app updates, the running menu bar app rebuilds its copies by itself (closed copies
+  right away, open ones when they quit). From the command line, `MV status` shows what's behind and
+  `MV build "<copy name>"` (copy closed) or `MV build --all` updates it. App data and logins are kept.
 - Everything can also be changed in Multiverse → Settings… in the menu bar.
 - Never delete the user's original apps or anything in `~/Library/Application Support`. Multiverse
   never does either.
