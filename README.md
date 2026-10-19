@@ -75,9 +75,12 @@ never touched.
   prompt comes back after a copy is updated, because updating re-signs it.
 - **Name and icon:** a copy shows its own name in the Dock and the menu bar. Change its icon later from the **⋯** menu on its row; that rebuilds the copy and
   keeps its logins.
-- **Updates:** a copy doesn't follow the original's auto-updates. When the original updates,
-  Multiverse shows "Update" next to the copy. Updating rebuilds the app files only. Logins and data
-  live in `~/Library`, not inside the app, so they are kept.
+- **Updates:** a copy follows the original. When the original updates itself, Multiverse rebuilds
+  the copy from it: straight away if the copy isn't open, or as soon as you quit it (the menu also
+  offers "Restart … to update"). The copy's own updater (Sparkle, Squirrel) is switched off, because
+  the app's updates are signed for the original and would undo the copy's name and settings. Updating
+  rebuilds the app files only. Logins and data live in `~/Library`, not inside the app, so they are
+  kept; expect the keychain prompt again after an update.
 - **Safety:** every app Multiverse builds carries a marker with the id of its entry, and Multiverse
   only ever replaces or trashes a bundle carrying that exact marker. If a name is already taken, it
   asks for another one. Names can't contain `/` or `:`, or start with a dot. The new copy is built next to the old one first, and the

@@ -329,6 +329,9 @@ struct AppRow: View {
                         .font(.caption).foregroundStyle(.red)
                 } else if let err = store.errors[entry.id] {
                     Text(err).font(.caption).foregroundStyle(.red)
+                } else if let update, store.pendingUpdates.contains(entry.id) {
+                    Text("\(sourceName) was updated to \(update). \(entry.name) updates when you quit it.")
+                        .font(.caption).foregroundStyle(Brand.muted)
                 } else if let update {
                     Text("\(sourceName) was updated to \(update). Update this copy to match.")
                         .font(.caption).foregroundStyle(.orange)

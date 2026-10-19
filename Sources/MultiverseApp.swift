@@ -24,6 +24,13 @@ final class Store: ObservableObject {
         didSet { UserDefaults.standard.set(Array(linkOwnersConfirmed), forKey: "linkOwnersConfirmed") }
     }
 
+    /// Copies whose original updated while they were running; rebuilt as soon as they quit.
+    @Published var pendingUpdates: Set<UUID> = []
+    /// Copies to open again once their update is built (from "Restart … to update").
+    private var reopenAfterUpdate: Set<UUID> = []
+    private var appsWatcher: DispatchSourceFileSystemObject?
+    private var syncScheduled = false
+
     /// Recently activated apps, newest last, to tell which app a bounced link was clicked in.
     private var activations: [(pid: pid_t, date: Date)] = []
     private var configDate = Config.modificationDate
@@ -43,7 +50,7 @@ final class Store: ObservableObject {
             }
         }
         NotificationCenter.default.addObserver(forName: NSApplication.didBecomeActiveNotification, object: nil, queue: .main) { _ in
-            Task { @MainActor in Store.shared.refreshRouting(); Store.shared.refreshBundles() }
+            Task { @MainActor in Store.shared.refreshRouting(); Store.shared.refreshBundles(); Store.shared.syncCopies() }
         }
         // Pick up edits made outside the app (by hand, by an agent, or by `Multiverse build`).
         // Watches the folder (saves replace the file) instead of polling.
@@ -55,6 +62,77 @@ final class Store: ObservableObject {
             source.resume()
             configWatcher = source
         }
+        // Keep copies in step with their originals: app updaters replace bundles in /Applications,
+        // which shows up as a change to the folder. A timer backs it up for anything the watch misses.
+        let apps = open("/Applications", O_EVTONLY)
+        if apps >= 0 {
+            let source = DispatchSource.makeFileSystemObjectSource(fileDescriptor: apps, eventMask: .write, queue: .main)
+            source.setEventHandler { Task { @MainActor in Store.shared.scheduleSync() } }
+            source.setCancelHandler { close(apps) }
+            source.resume()
+            appsWatcher = source
+        }
+        Timer.scheduledTimer(withTimeInterval: 30 * 60, repeats: true) { _ in
+            Task { @MainActor in Store.shared.syncCopies() }
+        }
+        NSWorkspace.shared.notificationCenter.addObserver(
+            forName: NSWorkspace.didTerminateApplicationNotification, object: nil, queue: .main
+        ) { note in
+            guard let url = (note.userInfo?[NSWorkspace.applicationUserInfoKey] as? NSRunningApplication)?.bundleURL else { return }
+            Task { @MainActor in Store.shared.copyQuit(at: url) }
+        }
+    }
+
+    /// Waits for an updater to finish (they write in several steps), then checks the copies.
+    func scheduleSync() {
+        guard !syncScheduled else { return }
+        syncScheduled = true
+        DispatchQueue.main.asyncAfter(deadline: .now() + 30) {
+            Task { @MainActor in Store.shared.syncScheduled = false; Store.shared.syncCopies() }
+        }
+    }
+
+    /// Rebuilds every copy whose original has a new version. Running copies wait until they quit.
+    func syncCopies() {
+        for entry in config.apps where entry.kind == .clone && !busy.contains(entry.id) {
+            guard Builder.updateAvailable(entry) != nil else { pendingUpdates.remove(entry.id); continue }
+            if FileManager.default.isRunning(URL(fileURLWithPath: entry.installedPath)) {
+                pendingUpdates.insert(entry.id)
+            } else {
+                autoUpdate(entry)
+            }
+        }
+    }
+
+    private func autoUpdate(_ entry: AppEntry) {
+        let from = Builder.version(at: URL(fileURLWithPath: entry.installedPath))?.short ?? "?"
+        build(entry, quiet: true) { ok in
+            guard ok else { return }
+            let to = Builder.version(at: URL(fileURLWithPath: entry.installedPath))?.short ?? "?"
+            Log.write("auto-updated \(entry.name) \(from) → \(to)")
+            if Store.shared.reopenAfterUpdate.remove(entry.id) != nil {
+                NSWorkspace.shared.openApplication(at: URL(fileURLWithPath: entry.installedPath),
+                                                   configuration: NSWorkspace.OpenConfiguration())
+            }
+        }
+    }
+
+    private func copyQuit(at url: URL) {
+        let path = url.standardizedFileURL.path
+        guard let entry = config.apps.first(where: {
+            $0.kind == .clone && URL(fileURLWithPath: $0.installedPath).standardizedFileURL.path == path
+        }), pendingUpdates.contains(entry.id) || Builder.updateAvailable(entry) != nil else { return }
+        // Give it a moment to finish exiting (helpers, crash reporter) before the bundle is swapped.
+        DispatchQueue.main.asyncAfter(deadline: .now() + 2) {
+            Task { @MainActor in Store.shared.syncCopies() }
+        }
+    }
+
+    /// Quits a running copy, updates it and opens it again.
+    func restartToUpdate(_ entry: AppEntry) {
+        reopenAfterUpdate.insert(entry.id)
+        let url = URL(fileURLWithPath: entry.installedPath).standardizedFileURL
+        NSWorkspace.shared.runningApplications.filter { $0.bundleURL?.standardizedFileURL == url }.forEach { $0.terminate() }
     }
 
     /// Rows read app versions straight from disk; ask them to look again (e.g. after a copy was
@@ -156,7 +234,9 @@ final class Store: ObservableObject {
     }
 
     /// Creates or updates the app for `entry` off the main thread. Adds the entry to the config on success.
-    func build(_ entry: AppEntry, done: ((Bool) -> Void)? = nil) {
+    /// `quiet`: an automatic update; if the copy is running or its original is mid-update, it waits
+    /// for the next pass instead of showing an error.
+    func build(_ entry: AppEntry, quiet: Bool = false, done: ((Bool) -> Void)? = nil) {
         busy.insert(entry.id)
         errors[entry.id] = nil
         let tint = tint(for: entry)
@@ -174,7 +254,16 @@ final class Store: ObservableObject {
                     } else {
                         self.config.apps.append(built)
                     }
+                    self.pendingUpdates.remove(entry.id)
                     done?(true)
+                case .failure(let error as BuildError) where quiet:
+                    switch error {
+                    case .running: self.pendingUpdates.insert(entry.id)
+                    case .sourceUpdating: self.scheduleSync()
+                    default: self.errors[entry.id] = error.localizedDescription
+                    }
+                    Log.write("auto-update \(entry.name) postponed: \(error)")
+                    done?(false)
                 case .failure(let error):
                     self.errors[entry.id] = error.localizedDescription
                     Log.write("build \(entry.name) failed: \(error)")
@@ -300,6 +389,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         Store.shared.enableOpenAtLoginOnce()
+        Store.shared.syncCopies()
         if !showOnboardingIfNeeded(), Store.shared.config.universes.isEmpty { showSettings() }
     }
 
@@ -353,7 +443,12 @@ struct MenuContent: View {
                 }
             }
         }
-        if store.config.apps.contains(where: { Builder.updateAvailable($0) != nil }) {
+        ForEach(store.config.apps.filter { store.pendingUpdates.contains($0.id) }) { app in
+            Button("Restart \(app.name) to update (\(Builder.updateAvailable(app) ?? "new version"))") {
+                store.restartToUpdate(app)
+            }
+        }
+        if store.config.apps.contains(where: { Builder.updateAvailable($0) != nil && !store.pendingUpdates.contains($0.id) }) {
             Button("Update copies of updated apps") { store.updateAllCopies() }
         }
         Button("Settings…") { showSettings() }

@@ -2,12 +2,13 @@ import AppKit
 import Security
 
 enum BuildError: LocalizedError {
-    case running(String), missingSource(String), tool(String), notOurs(String), systemApp
+    case running(String), missingSource(String), tool(String), notOurs(String), systemApp, sourceUpdating(String)
     var errorDescription: String? {
         switch self {
         case .notOurs(let p): "\(p) already exists and wasn't made by Multiverse. Pick another name."
         case .systemApp: "Apps in /System can't be cloned (macOS won't launch re-signed system apps)."
         case .running(let n): "Quit \(n) first, then update it."
+        case .sourceUpdating(let n): "\(n) is being updated right now. Try again in a minute."
         case .missingSource(let p): "Source app not found: \(p)"
         case .tool(let msg): msg
         }
@@ -141,6 +142,7 @@ enum Builder {
         guard fm.fileExists(atPath: src.path) else { throw BuildError.missingSource(src.path) }
         if entry.kind == .clone, src.path.hasPrefix("/System/") { throw BuildError.systemApp }
         if entry.kind == .clone, let reason = copyBlocker(src) { throw BuildError.tool(reason) }
+        if entry.kind == .clone, isMidUpdate(src) { throw BuildError.sourceUpdating(appName(src.path)) }
         if entry.kind == .clone, entry.dataDir == nil, entry.env.isEmpty, supportsProfiles(src) {
             entry.dataDir = defaultDataDir(for: entry.name)
         }
@@ -175,6 +177,11 @@ enum Builder {
         try run("/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister",
                 ["-f", dest.path])
         Log.write("built \(entry.kind.rawValue) \(dest.path)")
+        // A download the copy's updater left behind (not the original's, for copies that share its id).
+        if let id = entry.bundleID, id != Bundle(url: src)?.bundleIdentifier {
+            let cache = fm.homeDirectoryForCurrentUser.appendingPathComponent("Library/Caches/\(id).ShipIt")
+            if fm.fileExists(atPath: cache.path) { try? fm.trashItem(at: cache, resultingItemURL: nil) }
+        }
         return entry
     }
 
@@ -190,12 +197,33 @@ enum Builder {
     }
 
     /// Version of the app a copy was made from vs. the original now, when they differ.
+    /// Reads Info.plist directly: NSBundle caches per path and misses in-place updates.
     static func updateAvailable(_ entry: AppEntry) -> String? {
         guard entry.kind == .clone,
-              let made = Bundle(url: URL(fileURLWithPath: entry.installedPath))?.infoDictionary?["CFBundleShortVersionString"] as? String,
-              let now = Bundle(url: URL(fileURLWithPath: expand(entry.sourcePath)))?.infoDictionary?["CFBundleShortVersionString"] as? String,
+              let made = version(at: URL(fileURLWithPath: entry.installedPath)),
+              let now = version(at: URL(fileURLWithPath: expand(entry.sourcePath))),
               made != now else { return nil }
-        return now
+        return now.short
+    }
+
+    struct Version: Equatable { let short: String; let build: String }
+
+    static func version(at app: URL) -> Version? {
+        guard let info = NSDictionary(contentsOf: app.appendingPathComponent("Contents/Info.plist")) else { return nil }
+        let short = info["CFBundleShortVersionString"] as? String ?? ""
+        let build = info["CFBundleVersion"] as? String ?? ""
+        return short.isEmpty && build.isEmpty ? nil : Version(short: short.isEmpty ? build : short, build: build)
+    }
+
+    /// The original was just changed and its signature doesn't check out: its updater is probably
+    /// halfway through replacing it. (An app that fails the check for other reasons, long after its
+    /// last change, can still be copied.)
+    static func isMidUpdate(_ app: URL) -> Bool {
+        let changed = (try? FileManager.default.attributesOfItem(atPath: app.path))?[.modificationDate] as? Date ?? .distantPast
+        guard Date().timeIntervalSince(changed) < 300 else { return false }
+        var code: SecStaticCode?
+        guard SecStaticCodeCreateWithPath(app as CFURL, [], &code) == errSecSuccess, let code else { return true }
+        return SecStaticCodeCheckValidity(code, SecCSFlags(rawValue: kSecCSCheckNestedCode), nil) != errSecSuccess
     }
 
     // MARK: clone
@@ -249,6 +277,7 @@ enum Builder {
             try Icons.write(Icons.make(for: src, style: entry.icon, tint: tint),
                             to: dest.appendingPathComponent("Contents/Resources/\(name)"))
         }
+        let squirrel = try disableUpdaters(in: dest, plist: &plist)
         try PropertyListSerialization.data(fromPropertyList: plist, format: .xml, options: 0).write(to: plistURL)
         try renameLocalizations(in: dest, to: entry.name, renameBundle: true)
 
@@ -274,11 +303,39 @@ enum Builder {
         try run("/usr/bin/xattr", ["-cr", dest.path])
         for binary in nested { try run("/usr/bin/codesign", signArgs + [binary.path]) }
         for helper in helpers { try signHelper(helper) }
+        if let squirrel { try run("/usr/bin/codesign", ["--force", "-s", "-", squirrel.path]) }
         try run("/usr/bin/codesign", signArgs + [dest.path])
     }
 
     /// Localized InfoPlist.strings override CFBundleDisplayName, so the clone would still show the
     /// original's name in Finder and the Dock. Point them at the new name too.
+    /// A copy can't take the original's updates (they're signed for the original and would undo the
+    /// copy's name and settings), so its built-in updater is switched off; Multiverse rebuilds the copy
+    /// whenever the original updates instead. Returns Squirrel.framework if it was changed (needs signing).
+    private static func disableUpdaters(in bundle: URL, plist: inout [String: Any]) throws -> URL? {
+        let fm = FileManager.default
+        let frameworks = bundle.appendingPathComponent("Contents/Frameworks")
+        // Sparkle: an unreachable feed is the guard that holds even when user defaults (shared with
+        // the original when the bundle id is kept) turn automatic checks back on.
+        if plist["SUFeedURL"] != nil || fm.fileExists(atPath: frameworks.appendingPathComponent("Sparkle.framework").path) {
+            plist["SUFeedURL"] = "https://127.0.0.1:9/multiverse-copy"
+            plist["SUEnableAutomaticChecks"] = false
+            plist["SUAutomaticallyUpdate"] = false
+            plist["SUAllowsAutomaticUpdates"] = false
+            plist["SUScheduledCheckInterval"] = 31_536_000
+        }
+        // Squirrel.Mac (Electron): ShipIt installs downloaded updates. Electron links the framework, so
+        // it stays; only the installer becomes a no-op.
+        let squirrel = frameworks.appendingPathComponent("Squirrel.framework")
+        let shipIt = squirrel.appendingPathComponent("Versions/A/Resources/ShipIt")
+        guard fm.fileExists(atPath: shipIt.path) else { return nil }
+        try fm.removeItem(at: shipIt)
+        try "#!/bin/sh\n# Multiverse: this copy is updated by Multiverse, not by the app.\nexit 1\n"
+            .write(to: shipIt, atomically: true, encoding: .utf8)
+        try fm.setAttributes([.posixPermissions: 0o755], ofItemAtPath: shipIt.path)
+        return squirrel
+    }
+
     /// Renames Electron's helper apps ("Old Helper (Renderer).app" → "New Helper (Renderer).app") and
     /// their executables. Returns the renamed helpers, which need signing again.
     private static func renameElectronHelpers(in bundle: URL, from old: String, to new: String) throws -> [URL] {
